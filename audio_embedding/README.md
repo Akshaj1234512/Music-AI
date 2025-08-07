@@ -526,15 +526,5 @@ semantic_only = pipeline.extract_embeddings(audio, level='semantic')
 ### 🔮 Future Steps  
 - Create GuitarSet data loaders
 - Train/fine-tune components as needed
-- Optimize for 87% accuracy target
 
 See [STATUS.md](STATUS.md) for detailed current status and next steps.
-
-## Citation
-
-This implementation is based on research from:
-- Basic Pitch (Spotify)
-- Meta Encodec (Facebook/Meta)
-- VQ-VAE (DeepMind)
-- CLAP (LAION-AI)
-- Various guitar transcription papers cited in project documentation
