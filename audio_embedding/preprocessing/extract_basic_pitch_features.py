@@ -25,12 +25,10 @@ import soundfile as sf
 from tqdm import tqdm
 import json
 
-# Official Spotify Basic Pitch
-import basic_pitch.inference as bp
-from basic_pitch import ICASSP_2022_MODEL_PATH
+# Basic Pitch imports moved to main() after GPU setup
 
 
-def extract_basic_pitch_features(audio_path: str) -> Dict[str, np.ndarray]:
+def extract_basic_pitch_features(audio_path: str, bp_module) -> Dict[str, np.ndarray]:
     """
     Extract Basic Pitch features from audio file using official Spotify model.
     
@@ -42,7 +40,7 @@ def extract_basic_pitch_features(audio_path: str) -> Dict[str, np.ndarray]:
     """
     try:
         # Use official Basic Pitch inference
-        model_output, midi_data, note_events = bp.predict(audio_path)
+        model_output, midi_data, note_events = bp_module.predict(audio_path)
         
         # Extract the three main feature types
         features = {
@@ -104,8 +102,23 @@ def main():
                        help='Audio file extensions to process')
     parser.add_argument('--overwrite', action='store_true',
                        help='Overwrite existing feature files')
+    parser.add_argument('--gpu', type=int, default=2,
+                       help='GPU ID to use for processing (default: 2, use -1 for CPU)')
     
     args = parser.parse_args()
+    
+    # Set GPU device before importing TensorFlow/Basic Pitch
+    if args.gpu >= 0:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
+        print(f"Using GPU: {args.gpu}")
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        print("Using CPU (GPU disabled)")
+    
+    # Import Basic Pitch after setting GPU device
+    global bp, ICASSP_2022_MODEL_PATH
+    import basic_pitch.inference as bp
+    from basic_pitch import ICASSP_2022_MODEL_PATH
     
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
@@ -146,7 +159,7 @@ def main():
             continue
         
         # Extract features
-        features = extract_basic_pitch_features(str(audio_path))
+        features = extract_basic_pitch_features(str(audio_path), bp)
         
         if features is not None:
             # Save features

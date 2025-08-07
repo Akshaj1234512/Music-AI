@@ -232,11 +232,23 @@ note_events = extractor.get_note_events(audio.squeeze(0))  # Single audio only
 - Backward compatibility with existing pipeline
 
 **Offline Preprocessing:**
-```python
-# Extract features from entire dataset
+```bash
+# Extract features from entire dataset (uses GPU 2 by default)
 python preprocessing/extract_basic_pitch_features.py \
     --input_dir /path/to/audio \
     --output_dir /path/to/features
+
+# Specify different GPU for multi-GPU servers
+python preprocessing/extract_basic_pitch_features.py \
+    --input_dir /path/to/audio \
+    --output_dir /path/to/features \
+    --gpu 0
+
+# Force CPU usage (slower but no GPU required)
+python preprocessing/extract_basic_pitch_features.py \
+    --input_dir /path/to/audio \
+    --output_dir /path/to/features \
+    --gpu -1
 ```
 
 **Training with Precomputed Features:**
