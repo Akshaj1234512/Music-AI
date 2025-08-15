@@ -1,0 +1,9 @@
+# Requirements for GuitarSet JAMS to MIDI conversion
+# JAMS file processing
+jams>=0.3.0
+
+# MIDI file handling
+mido>=1.2.10
+
+# File handling
+pathlib2>=2.3.0
