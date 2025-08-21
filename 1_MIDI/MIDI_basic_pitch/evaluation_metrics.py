@@ -68,8 +68,12 @@ class BasicPitchEvaluator:
         
         # 1. Frame-level evaluation
         if 'note' in model_output and 'onset' in model_output:
-            frame_metrics = self._evaluate_frame_level(model_output, ground_truth)
-            metrics_dict.update(frame_metrics)
+            # Ensure we have the pretty_midi object for frame conversion
+            if 'midi_object' in ground_truth:
+                frame_metrics = self._evaluate_frame_level(model_output, ground_truth['midi_object'])
+                metrics_dict.update(frame_metrics)
+            else:
+                logger.warning("Skipping frame-level evaluation: 'midi_object' not in ground_truth")
         
         # 2. Note-level evaluation using mir_eval
         note_metrics = self._evaluate_note_level(predicted_notes, gt_notes)
@@ -78,7 +82,7 @@ class BasicPitchEvaluator:
         return metrics_dict
     
     def _evaluate_frame_level(self, model_output: Dict[str, np.ndarray], 
-                            ground_truth: Dict[str, Any]) -> Dict[str, float]:
+                            gt_midi: pretty_midi.PrettyMIDI) -> Dict[str, float]:
         """
         Evaluate frame-level predictions against ground truth.
         
@@ -94,8 +98,8 @@ class BasicPitchEvaluator:
         onset_probs = model_output['onset']  # [time, 88]
         
         # Convert ground truth MIDI to frame representation
-        gt_frames = self._midi_to_frames(ground_truth, note_probs.shape[0])
-        gt_onsets = self._midi_to_onset_frames(ground_truth, onset_probs.shape[0])
+        gt_frames = self._midi_to_frames(gt_midi, note_probs.shape[0])
+        gt_onsets = self._midi_to_onset_frames(gt_midi, onset_probs.shape[0])
         
         # Apply thresholds to get binary predictions
         frame_threshold = self.config['basic_pitch']['frame_threshold']
@@ -110,23 +114,25 @@ class BasicPitchEvaluator:
         gt_frames = gt_frames[:min_len] 
         pred_onsets = pred_onsets[:min_len]
         gt_onsets = gt_onsets[:min_len]
+
+
         
         # Compute frame-level metrics
         frame_metrics = {}
         
         # Frame F1, precision, recall
-        frame_f1 = metrics.f1_score(gt_frames.flatten(), pred_frames.flatten(), average='binary')
-        frame_precision = metrics.precision_score(gt_frames.flatten(), pred_frames.flatten(), average='binary', zero_division=0)
-        frame_recall = metrics.recall_score(gt_frames.flatten(), pred_frames.flatten(), average='binary', zero_division=0)
+        frame_f1 = metrics.f1_score(gt_frames.flatten(), pred_frames.flatten(), average='micro')
+        frame_precision = metrics.precision_score(gt_frames.flatten(), pred_frames.flatten(), average='micro', zero_division=0)
+        frame_recall = metrics.recall_score(gt_frames.flatten(), pred_frames.flatten(), average='micro', zero_division=0)
         
         frame_metrics['frame_f1'] = frame_f1
         frame_metrics['frame_precision'] = frame_precision
         frame_metrics['frame_recall'] = frame_recall
         
         # Onset F1, precision, recall
-        onset_f1 = metrics.f1_score(gt_onsets.flatten(), pred_onsets.flatten(), average='binary')
-        onset_precision = metrics.precision_score(gt_onsets.flatten(), pred_onsets.flatten(), average='binary', zero_division=0)
-        onset_recall = metrics.recall_score(gt_onsets.flatten(), pred_onsets.flatten(), average='binary', zero_division=0)
+        onset_f1 = metrics.f1_score(gt_onsets.flatten(), pred_onsets.flatten(), average='micro')
+        onset_precision = metrics.precision_score(gt_onsets.flatten(), pred_onsets.flatten(), average='micro', zero_division=0)
+        onset_recall = metrics.recall_score(gt_onsets.flatten(), pred_onsets.flatten(), average='micro', zero_division=0)
         
         frame_metrics['onset_f1'] = onset_f1
         frame_metrics['onset_precision'] = onset_precision
@@ -134,36 +140,35 @@ class BasicPitchEvaluator:
         
         return frame_metrics
     
-    def _midi_to_frames(self, ground_truth: Dict[str, Any], num_frames: int) -> np.ndarray:
-        """Convert ground truth MIDI to frame-level representation."""
-        frames = np.zeros((num_frames, 128), dtype=int)  # Support full MIDI range
+    def _midi_to_frames(self, midi_data: pretty_midi.PrettyMIDI, num_frames: int) -> np.ndarray:
+        """Convert ground truth MIDI to a piano roll using pretty_midi."""
+        # The piano roll has a shape of (128, num_frames)
+        piano_roll = midi_data.get_piano_roll(fs=self.frames_per_second)
         
-        frame_duration = 1.0 / self.frames_per_second
-        
-        for start_time, end_time, pitch, velocity in ground_truth['note_events']:
-            start_frame = int(start_time * self.frames_per_second)
-            end_frame = int(end_time * self.frames_per_second)
+        # Ensure piano_roll has the same number of frames as the prediction
+        if piano_roll.shape[1] < num_frames:
+            # Pad with zeros if shorter
+            pad_width = num_frames - piano_roll.shape[1]
+            piano_roll = np.pad(piano_roll, ((0, 0), (0, pad_width)), mode='constant')
+        elif piano_roll.shape[1] > num_frames:
+            # Truncate if longer
+            piano_roll = piano_roll[:, :num_frames]
             
-            # Clamp to valid range
-            start_frame = max(0, min(start_frame, num_frames - 1))
-            end_frame = max(0, min(end_frame, num_frames - 1))
+        # Transpose to match Basic Pitch's (num_frames, pitch) shape and slice to 88 keys
+        return piano_roll.T[:, 21:109]
+
+    def _midi_to_onset_frames(self, midi_data: pretty_midi.PrettyMIDI, num_frames: int) -> np.ndarray:
+        """Convert ground truth MIDI to an onset piano roll."""
+        onsets = np.zeros((num_frames, 88), dtype=int)
+        
+        for note in midi_data.instruments[0].notes:
+            start_frame = int(note.start * self.frames_per_second)
+            pitch_index = note.pitch - 21  # Convert MIDI pitch to 88-key index
             
-            if start_frame < num_frames and 0 <= pitch < 128:
-                frames[start_frame:end_frame + 1, pitch] = 1
+            if 0 <= start_frame < num_frames and 0 <= pitch_index < 88:
+                onsets[start_frame, pitch_index] = 1
         
-        return frames[:, 21:109]  # Return 88-key piano range like Basic Pitch
-    
-    def _midi_to_onset_frames(self, ground_truth: Dict[str, Any], num_frames: int) -> np.ndarray:
-        """Convert ground truth MIDI to onset-only frame representation."""
-        onsets = np.zeros((num_frames, 128), dtype=int)
-        
-        for start_time, end_time, pitch, velocity in ground_truth['note_events']:
-            onset_frame = int(start_time * self.frames_per_second)
-            
-            if 0 <= onset_frame < num_frames and 0 <= pitch < 128:
-                onsets[onset_frame, pitch] = 1
-        
-        return onsets[:, 21:109]  # Return 88-key piano range
+        return onsets  # Return 88-key piano range
     
     def _evaluate_note_level(self, predicted_notes: List[Tuple], 
                            gt_notes: List[Tuple]) -> Dict[str, float]:

@@ -74,25 +74,24 @@ class BasicPitchLoader:
                 stem = audio_path.stem
                 audio_files[stem] = audio_path
         
-        # Find matching MIDI files
-        for stem, audio_path in audio_files.items():
-            midi_path = None
-            
-            # Try different MIDI extensions
-            for midi_ext in midi_extensions:
-                potential_midi = self.midi_dir / f"{stem}{midi_ext}"
-                if potential_midi.exists():
-                    midi_path = potential_midi
-                    break
-            
-            if midi_path is not None:
+        # Find all MIDI files
+        midi_files = {}
+        for ext in midi_extensions:
+            for midi_path in self.midi_dir.glob(f"**/*{ext}"):
+                midi_files[midi_path.stem] = midi_path
+
+        # Find matching audio files
+        for midi_stem, midi_path in midi_files.items():
+            audio_stem = f"{midi_stem}_mic"
+            if audio_stem in audio_files:
+                audio_path = audio_files[audio_stem]
                 pairs.append({
-                    'filename': stem,
+                    'filename': midi_stem,
                     'audio_path': audio_path,
                     'midi_path': midi_path
                 })
             else:
-                logger.warning(f"No matching MIDI found for: {stem}")
+                logger.warning(f"No matching audio found for: {midi_stem}")
         
         return pairs
     

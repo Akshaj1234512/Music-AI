@@ -2,11 +2,11 @@
 
 # Basic Pitch prediction thresholds
 basic_pitch:
-  onset_threshold: 0.3
+  onset_threshold: 0.5
   frame_threshold: 0.3
   minimum_note_length: 127.70  # milliseconds
-  minimum_frequency: 75.0      # Below E2 (82.4 Hz) 
-  maximum_frequency: 2000.0    # Include harmonics
+  #minimum_frequency: 75.0      # Below E2 (82.4 Hz) 
+  #maximum_frequency: 2000.0    # Include harmonics
   midi_tempo: 120.0
 
 # mir_eval evaluation tolerances
@@ -17,18 +17,14 @@ evaluation:
 
 # Dataset paths (user fills these in)
 paths:
-  guitarset_audio_dir: ""      # Path to GuitarSet audio files (.wav)
-  guitarset_midi_dir: ""       # Path to GuitarSet MIDI annotations (.mid)
-  output_dir: "results"        # Output directory for predictions and metrics
-
-# GPU settings  
-gpu:
-  device_id: 0
-  use_gpu: true
+  sr: 44100
+  guitarset_audio_dir: '/data/akshaj/MusicAI/GuitarSet/audio_mono-mic/'      # Path to GuitarSet audio files (.wav)
+  guitarset_midi_dir: '/data/akshaj/MusicAI/GuitarSet/MIDIAnnotations/'       # Path to GuitarSet MIDI annotations (.mid)
+  output_dir: "/data/andreaguz/midi/BasicPitch/"        # Output directory for predictions and metrics
 
 # Processing settings
 processing:
   batch_size: 1                # Process one file at a time
   save_predictions: true       # Save predicted MIDI files
-  save_model_outputs: true     # Save raw model probabilities
+  save_model_outputs: false     # Save raw model probabilities
   verbose: true

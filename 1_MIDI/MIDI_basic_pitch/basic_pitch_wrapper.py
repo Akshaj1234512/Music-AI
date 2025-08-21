@@ -22,10 +22,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class BasicPitchGuitarWrapper:
+class BasicPitchWrapper:
     """
     Wrapper for Basic Pitch focused on guitar transcription evaluation.
-    Uses TensorFlow backend with GPU support.
     """
     
     def __init__(self, config_path: str):
@@ -38,16 +37,14 @@ class BasicPitchGuitarWrapper:
         # Load configuration
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-        
-        # Set up GPU
-        self._setup_gpu()
+    
         
         # Basic Pitch parameters from config
         self.onset_threshold = self.config['basic_pitch']['onset_threshold']
         self.frame_threshold = self.config['basic_pitch']['frame_threshold']
         self.minimum_note_length = self.config['basic_pitch']['minimum_note_length']
-        self.minimum_frequency = self.config['basic_pitch']['minimum_frequency']
-        self.maximum_frequency = self.config['basic_pitch']['maximum_frequency']
+        #self.minimum_frequency = self.config['basic_pitch']['minimum_frequency']
+        #self.maximum_frequency = self.config['basic_pitch']['maximum_frequency']
         self.midi_tempo = self.config['basic_pitch']['midi_tempo']
         
         # Processing settings
@@ -56,6 +53,7 @@ class BasicPitchGuitarWrapper:
         self.verbose = self.config['processing']['verbose']
         
         # Output directory
+        self.sr = self.config['paths']['sr']
         self.output_dir = Path(self.config['paths']['output_dir'])
         self.output_dir.mkdir(exist_ok=True)
         
@@ -66,38 +64,10 @@ class BasicPitchGuitarWrapper:
             logger.info("✓ Basic Pitch Guitar Wrapper initialized")
             logger.info(f"  Onset threshold: {self.onset_threshold}")
             logger.info(f"  Frame threshold: {self.frame_threshold}")
-            logger.info(f"  Frequency range: {self.minimum_frequency}-{self.maximum_frequency} Hz")
+            #logger.info(f"  Frequency range: {self.minimum_frequency}-{self.maximum_frequency} Hz")
             logger.info(f"  Output directory: {self.output_dir}")
     
-    def _setup_gpu(self):
-        """Configure GPU settings for TensorFlow."""
-        if self.config['gpu']['use_gpu']:
-            # Set GPU device
-            device_id = self.config['gpu']['device_id']
-            
-            # Configure GPU memory growth to avoid allocation issues
-            gpus = tf.config.experimental.list_physical_devices('GPU')
-            if gpus:
-                try:
-                    # Select specific GPU
-                    tf.config.experimental.set_visible_devices(gpus[device_id], 'GPU')
-                    # Enable memory growth
-                    tf.config.experimental.set_memory_growth(gpus[device_id], True)
-                    if self.verbose:
-                        logger.info(f"✓ Using GPU {device_id}: {gpus[device_id].name}")
-                except (RuntimeError, IndexError) as e:
-                    logger.warning(f"GPU setup failed: {e}. Using CPU.")
-            else:
-                logger.warning("No GPUs found. Using CPU.")
-        else:
-            # Force CPU usage
-            try:
-                tf.config.set_visible_devices([], 'GPU')
-            except Exception as e:
-                if self.verbose:
-                    logger.debug(f"CPU mode: could not set visible GPU devices: {e}")
-            if self.verbose:
-                logger.info("Using CPU (GPU disabled in config)")
+    
     
     def transcribe_single(self, audio_path: str) -> Dict[str, Any]:
         """
@@ -128,60 +98,54 @@ class BasicPitchGuitarWrapper:
         file_output_dir = self.output_dir / audio_path.stem
         file_output_dir.mkdir(exist_ok=True)
         
-        try:
-            # Run Basic Pitch prediction
-            model_output, midi_data, note_events = predict(
-                audio_path,
-                model_or_model_path=self.model,
-                onset_threshold=self.onset_threshold,
-                frame_threshold=self.frame_threshold,
-                minimum_note_length=self.minimum_note_length,
-                minimum_frequency=self.minimum_frequency,
-                maximum_frequency=self.maximum_frequency,
-                midi_tempo=self.midi_tempo
-            )
+    
+        # Run Basic Pitch prediction
+        model_output, midi_data, note_events = predict(
+            audio_path,
+            model_or_model_path=self.model,
+            onset_threshold=self.onset_threshold,
+            frame_threshold=self.frame_threshold
+        )
+        
+        processing_time = time.time() - start_time
+        
+        output_files = {}
+        
+        # Save MIDI file
+        if self.save_predictions:
+            midi_path = file_output_dir / f"{audio_path.stem}_basic_pitch.mid"
+            midi_data.write(str(midi_path))
+            output_files['midi'] = str(midi_path)
+        
+        # Save model outputs (raw probabilities)
+        if self.save_model_outputs:
+            npz_path = file_output_dir / f"{audio_path.stem}_model_output.npz"
+            np.savez(npz_path, **model_output)
+            output_files['model_output'] = str(npz_path)
+        
+        # Save note events as text
+        if self.save_predictions:
+            notes_path = file_output_dir / f"{audio_path.stem}_note_events.txt"
+            self._save_note_events(note_events, notes_path)
+            output_files['note_events'] = str(notes_path)
+        
+        if self.verbose:
+            num_notes = len(note_events)
+            logger.info(f"  ✓ Processed in {processing_time:.2f}s")
+            logger.info(f"  ✓ Detected {num_notes} notes")
+            if output_files:
+                logger.info(f"  ✓ Saved outputs to: {file_output_dir}")
+        
+        return {
+            'model_output': model_output,
+            'midi_data': midi_data,
+            'note_events': note_events,
+            'processing_time': processing_time,
+            'output_files': output_files,
+            'audio_path': str(audio_path)
+        }
             
-            processing_time = time.time() - start_time
-            
-            output_files = {}
-            
-            # Save MIDI file
-            if self.save_predictions:
-                midi_path = file_output_dir / f"{audio_path.stem}_basic_pitch.mid"
-                midi_data.write(str(midi_path))
-                output_files['midi'] = str(midi_path)
-            
-            # Save model outputs (raw probabilities)
-            if self.save_model_outputs:
-                npz_path = file_output_dir / f"{audio_path.stem}_model_output.npz"
-                np.savez(npz_path, **model_output)
-                output_files['model_output'] = str(npz_path)
-            
-            # Save note events as text
-            if self.save_predictions:
-                notes_path = file_output_dir / f"{audio_path.stem}_note_events.txt"
-                self._save_note_events(note_events, notes_path)
-                output_files['note_events'] = str(notes_path)
-            
-            if self.verbose:
-                num_notes = len(note_events)
-                logger.info(f"  ✓ Processed in {processing_time:.2f}s")
-                logger.info(f"  ✓ Detected {num_notes} notes")
-                if output_files:
-                    logger.info(f"  ✓ Saved outputs to: {file_output_dir}")
-            
-            return {
-                'model_output': model_output,
-                'midi_data': midi_data,
-                'note_events': note_events,
-                'processing_time': processing_time,
-                'output_files': output_files,
-                'audio_path': str(audio_path)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error processing {audio_path}: {e}")
-            raise
+        
     
     def transcribe_batch(self, audio_paths: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -264,14 +228,14 @@ if __name__ == "__main__":
         exit(1)
     
     # Initialize wrapper
-    wrapper = BasicPitchGuitarWrapper(config_path)
+    wrapper = BasicPitchWrapper(config_path)
     
     # Example single file transcription
-    # test_audio = "path/to/your/guitar.wav"
-    # if Path(test_audio).exists():
-    #     result = wrapper.transcribe_single(test_audio)
-    #     print(f"Transcribed {result['audio_path']}")
-    #     print(f"Detected {len(result['note_events'])} notes")
+    test_audio = "/data/akshaj/MusicAI/GuitarSet/audio_mono-mic/03_BN2-131-B_comp_mic.wav"
+    if Path(test_audio).exists():
+        result = wrapper.transcribe_single(test_audio)
+        print(f"Transcribed {result['audio_path']}")
+        print(f"Detected {len(result['note_events'])} notes")
     
     print("Basic Pitch Guitar Wrapper initialized successfully!")
     print("Usage:")

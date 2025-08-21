@@ -11,8 +11,9 @@ from typing import Dict, List, Any
 import logging
 
 import yaml
+import pretty_midi
 
-from basic_pitch_wrapper import BasicPitchGuitarWrapper
+from basic_pitch_wrapper import BasicPitchWrapper
 from basic_pitch_loader import BasicPitchLoader
 from evaluation_metrics import BasicPitchEvaluator
 
@@ -35,7 +36,7 @@ def run_evaluation(config_path: str, output_file: str = None, max_files: int = N
     # Initialize components
     logger.info("Initializing components...")
     
-    wrapper = BasicPitchGuitarWrapper(config_path)
+    wrapper = BasicPitchWrapper(config_path)
     loader = BasicPitchLoader(config_path) 
     evaluator = BasicPitchEvaluator(config_path)
     
@@ -61,45 +62,45 @@ def run_evaluation(config_path: str, output_file: str = None, max_files: int = N
         filename = pair['filename']
         logger.info(f"Processing {i+1}/{len(all_pairs)}: {filename}")
         
+        
+        # Load ground truth
+        ground_truth = loader.load_midi_ground_truth(pair['midi_path'])
+        
+        # Load the MIDI file as a pretty_midi object for frame evaluation
         try:
-            # Load ground truth
-            ground_truth = loader.load_midi_ground_truth(pair['midi_path'])
-            
-            # Run Basic Pitch prediction
-            prediction = wrapper.transcribe_single(str(pair['audio_path']))
-            
-            # Evaluate prediction vs ground truth
-            metrics = evaluator.evaluate_prediction(prediction, ground_truth)
-            
-            # Store result
-            result = {
-                'filename': filename,
-                'audio_path': str(pair['audio_path']),
-                'midi_path': str(pair['midi_path']),
-                'processing_time': prediction['processing_time'],
-                'num_predicted_notes': len(prediction['note_events']),
-                'num_ground_truth_notes': ground_truth['num_notes'],
-                'audio_duration': ground_truth['duration'],
-                'metrics': metrics
-            }
-            
-            results.append(result)
-            
-            # Log key metrics
-            logger.info(f"  ✓ Predicted notes: {result['num_predicted_notes']}")
-            logger.info(f"  ✓ Ground truth notes: {result['num_ground_truth_notes']}")
-            logger.info(f"  ✓ Note F1: {metrics.get('note_f1', 0):.4f}")
-            logger.info(f"  ✓ Frame F1: {metrics.get('frame_f1', 0):.4f}")
-            
+            midi_object = pretty_midi.PrettyMIDI(str(pair['midi_path']))
+            ground_truth['midi_object'] = midi_object
         except Exception as e:
-            logger.error(f"Failed to process {filename}: {e}")
-            results.append({
-                'filename': filename,
-                'error': str(e),
-                'audio_path': str(pair['audio_path']),
-                'midi_path': str(pair['midi_path'])
-            })
+            logger.error(f"Could not load MIDI file {pair['midi_path']}: {e}")
             continue
+        
+        # Run Basic Pitch prediction
+        prediction = wrapper.transcribe_single(str(pair['audio_path']))
+        
+        # Evaluate prediction vs ground truth
+        metrics = evaluator.evaluate_prediction(prediction, ground_truth)
+        
+        # Store result
+        result = {
+            'filename': filename,
+            'audio_path': str(pair['audio_path']),
+            'midi_path': str(pair['midi_path']),
+            'processing_time': prediction['processing_time'],
+            'num_predicted_notes': len(prediction['note_events']),
+            'num_ground_truth_notes': ground_truth['num_notes'],
+            'audio_duration': ground_truth['duration'],
+            'metrics': metrics
+        }
+        
+        results.append(result)
+        
+        # Log key metrics
+        logger.info(f"  ✓ Predicted notes: {result['num_predicted_notes']}")
+        logger.info(f"  ✓ Ground truth notes: {result['num_ground_truth_notes']}")
+        logger.info(f"  ✓ Note F1: {metrics.get('note_f1', 0):.4f}")
+        logger.info(f"  ✓ Frame F1: {metrics.get('frame_f1', 0):.4f}")
+        
+        
     
     total_time = time.time() - start_time
     
@@ -111,8 +112,6 @@ def run_evaluation(config_path: str, output_file: str = None, max_files: int = N
     final_results = {
         'evaluation_summary': {
             'total_files_processed': len(results),
-            'successful_files': len([r for r in results if 'error' not in r]),
-            'failed_files': len([r for r in results if 'error' in r]),
             'total_processing_time': total_time,
             'average_time_per_file': total_time / len(results) if results else 0,
         },
@@ -138,7 +137,6 @@ def display_results(results: Dict[str, Any]):
     print("=" * 60)
     
     summary = results['evaluation_summary']
-    print(f"Files processed: {summary['successful_files']}/{summary['total_files_processed']}")
     print(f"Total time: {summary['total_processing_time']:.1f}s")
     print(f"Average time per file: {summary['average_time_per_file']:.1f}s")
     print()
