@@ -1,4 +1,68 @@
-# Basic Pitch Guitar Transcription Evaluation
+# Basic Pitch Guitar Transcription Evaluation Pipeline
+
+This project provides a complete pipeline for evaluating the performance of the Basic Pitch audio-to-MIDI transcription model, specifically tailored for the GuitarSet dataset. It handles everything from data loading and transcription to detailed, multi-faceted evaluation.
+
+## Key Features
+
+- **Automated Transcription**: Runs audio files through the Basic Pitch model to generate MIDI transcriptions.
+- **Flexible Data Loading**: Intelligently pairs audio and ground truth MIDI files, with custom logic to match different naming conventions (e.g., `file.wav` and `file_mic.wav`).
+- **Comprehensive Evaluation**: Calculates a suite of standard music information retrieval (MIR) metrics, including:
+  - **Note-Level Metrics**: F1, Precision, and Recall for note accuracy (correct pitch and timing).
+  - **Frame-Level Metrics**: F1, Precision, and Recall for frame-by-frame accuracy.
+  - **Onset-Level Metrics**: F1, Precision, and Recall for the accuracy of note start times.
+- **Configurable Pipeline**: All key parameters, including file paths, model thresholds, and output settings, are managed through a central `config.yaml` file.
+- **Detailed Reporting**: Generates aggregate metrics with mean and standard deviation across all processed files, providing a robust overview of model performance.
+
+## Setup
+
+1.  **Clone the repository and install dependencies:**
+    ```bash
+    git clone <repository-url>
+    cd MIDI_basic_pitch
+    pip install -r requirements.txt
+    ```
+
+2.  **Configure the pipeline:**
+    - Open `config.yaml`.
+    - Set the `dataset_dir` to the root path of your GuitarSet dataset.
+    - Ensure the `audio_dir_name` and `midi_dir_name` correspond to the correct subdirectories.
+
+## Usage
+
+To run the full evaluation on your dataset, execute the main script from the project's root directory:
+
+```bash
+python main.py --config config.yaml
+```
+
+### Limiting Files for Quick Tests
+
+To run a quick test on a smaller subset of files, use the `--max-files` argument:
+
+```bash
+# Run on the first 5 files
+python main.py --config config.yaml --max-files 5
+```
+
+## Configuration (`config.yaml`)
+
+The `config.yaml` file is the control center for the pipeline. Here are the most important parameters:
+
+- **`dataset_dir`**: The absolute path to your dataset (e.g., GuitarSet).
+- **`output_dir`**: Where to save prediction outputs (generated MIDI, raw model probabilities).
+- **`basic_pitch.onset_threshold`**: The confidence threshold (0.0 to 1.0) for detecting a note onset. **This is a critical parameter to tune.**
+- **`basic_pitch.frame_threshold`**: The confidence threshold for detecting an active note in a given frame. **This is also critical to tune.**
+- **`save_predictions`**: Set to `true` to save the transcribed MIDI files.
+- **`save_model_outputs`**: Set to `true` to save the raw model probability matrices (`.npz` files).
+
+## Core Modules
+
+- **`main.py`**: The main entry point for the script. It orchestrates the data loading, transcription, and evaluation process.
+- **`config.yaml`**: The configuration file for managing all pipeline parameters.
+- **`basic_pitch_loader.py`**: Handles finding and pairing audio/MIDI files and loading ground truth data.
+- **`basic_pitch_wrapper.py`**: A wrapper around the Basic Pitch library that manages the transcription process.
+- **`evaluation_metrics.py`**: Contains all the logic for calculating note, frame, and onset evaluation metrics.
+
 
 This directory contains tools for evaluating Spotify's Basic Pitch model on guitar transcription using the GuitarSet dataset. The pipeline runs end-to-end audio-to-MIDI transcription and computes detailed evaluation metrics.
 
@@ -58,11 +122,6 @@ basic_pitch:
   frame_threshold: 0.3      # Frame activation threshold  
   minimum_frequency: 75.0   # Filter low frequencies (below guitar range)
   maximum_frequency: 2000.0 # Filter high frequencies (harmonics)
-
-# GPU settings
-gpu:
-  device_id: 0     # GPU to use
-  use_gpu: true    # Enable/disable GPU
 ```
 
 ## Usage
