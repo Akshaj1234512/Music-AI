@@ -86,21 +86,21 @@ def pack_guitarset_dataset_to_hdf5(args):
                 ]
             elif current_audio_type == 'audio_hex_original':
                 patterns = [
-                    base_name + '.wav',
-                    base_name + '_comp.wav',
-                    base_name + '_solo.wav'
+                    base_name + '_hex.wav',
+                    base_name + '_comp_hex.wav',
+                    base_name + '_solo_hex.wav'
                 ]
             elif current_audio_type == 'audio_hex_debleeded':
                 patterns = [
-                    base_name + '_debleeded.wav',
-                    base_name + '_comp_debleeded.wav',
-                    base_name + '_solo_debleeded.wav'
+                    base_name + '_hex_cln.wav',
+                    base_name + '_comp_hex_cln.wav',
+                    base_name + '_solo_hex_cln.wav'
                 ]
             elif current_audio_type == 'audio_mono-mic':
                 patterns = [
-                    base_name + '_mono-mic.wav',
-                    base_name + '_comp_mono-mic.wav',
-                    base_name + '_solo_mono-mic.wav'
+                    base_name + '_mic.wav',
+                    base_name + '_comp_mic.wav',
+                    base_name + '_solo_mic.wav'
                 ]
             else:
                 patterns = [base_name + '.wav']
@@ -139,7 +139,10 @@ def pack_guitarset_dataset_to_hdf5(args):
 
                 # Create HDF5 filename with audio type
                 hdf5_filename = base_name + '__' + current_audio_type + '.h5'
-                packed_hdf5_path = os.path.join(waveform_hdf5s_dir, hdf5_filename)
+                
+                # Create split-specific directory and place file there
+                split_dir = os.path.join(waveform_hdf5s_dir, split)
+                packed_hdf5_path = os.path.join(split_dir, hdf5_filename)
 
                 create_folder(os.path.dirname(packed_hdf5_path))
 

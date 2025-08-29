@@ -51,7 +51,7 @@ class MaestroDataset(object):
         Args:
           meta: dict, e.g. {
             'year': '2004', 
-            'hdf5_name': 'MIDI-Unprocessed_SMF_12_01_2004_01-05_ORIG_MID--AUDIO_12_R1_2004_10_Track10_wav.h5, 
+            'hdf5_name': '/full/path/to/file.h5', 
             'start_time': 65.0}
 
         Returns:
@@ -70,8 +70,10 @@ class MaestroDataset(object):
             'reg_pedal_offset_roll': (frames_num,), 
             'pedal_frame_roll': (frames_num,)}
         """
-        [year, hdf5_name, start_time] = meta
-        hdf5_path = os.path.join(self.hdf5s_dir, year, hdf5_name)
+        [year, hdf5_path, start_time] = meta
+        
+        # The samplers now pass the full path to the HDF5 file
+        # so we can use it directly
          
         data_dict = {}
 
@@ -165,18 +167,19 @@ class Augmentor(object):
 class Sampler(object):
     def __init__(self, hdf5s_dir, split, segment_seconds, hop_seconds, 
             batch_size, mini_data, random_seed=1234):
-        """Sampler is used to sample segments for training or evaluation.
+        """Sampler for training.
 
         Args:
           hdf5s_dir: str
-          split: 'train' | 'validation' | 'test'
+          split: 'train' | 'validation'
           segment_seconds: float
           hop_seconds: float
           batch_size: int
           mini_data: bool, sample from a small amount of data for debugging
         """
-        assert split in ['train', 'validation', 'test']
+        assert split in ['train', 'validation']
         self.hdf5s_dir = hdf5s_dir
+        self.split = split
         self.segment_seconds = segment_seconds
         self.hop_seconds = hop_seconds
         self.sample_rate = config.sample_rate
@@ -188,27 +191,33 @@ class Sampler(object):
 
         n = 0
         for hdf5_path in hdf5_paths:
-            with h5py.File(hdf5_path, 'r') as hf:
-                # Handle both string and bytes attributes
-                split_attr = hf.attrs['split']
-                if isinstance(split_attr, bytes):
-                    split_attr = split_attr.decode()
+            # Use folder structure instead of HDF5 split tags
+            # Check if the file is in the correct split subdirectory
+            split_dir = os.path.join(hdf5s_dir, split)
+            if hdf5_path.startswith(split_dir):
+                audio_name = hdf5_path.split('/')[-1]
+                # Try to get year from HDF5 attributes, fallback to folder name if not available
+                try:
+                    with h5py.File(hdf5_path, 'r') as hf:
+                        year_attr = hf.attrs.get('year', 'unknown')
+                        if isinstance(year_attr, bytes):
+                            year = year_attr.decode()
+                        else:
+                            year = str(year_attr)
+                        duration = hf.attrs['duration']
+                except:
+                    # Fallback: try to extract year from path or use 'unknown'
+                    year = 'unknown'
+                    duration = 10.0  # Default duration if not available
                 
-                if split_attr == split:
-                    audio_name = hdf5_path.split('/')[-1]
-                    year_attr = hf.attrs['year']
-                    if isinstance(year_attr, bytes):
-                        year = year_attr.decode()
-                    else:
-                        year = str(year_attr)
-                    start_time = 0
-                    while (start_time + self.segment_seconds < hf.attrs['duration']):
-                        self.segment_list.append([year, audio_name, start_time])
-                        start_time += self.hop_seconds
-                    
-                    n += 1
-                    if mini_data and n == 10:
-                        break
+                start_time = 0
+                while (start_time + self.segment_seconds < duration):
+                    self.segment_list.append([year, hdf5_path, start_time])
+                    start_time += self.hop_seconds
+                
+                n += 1
+                if mini_data and n == 10:
+                    break
         """self.segment_list looks like:
         [['2004', 'MIDI-Unprocessed_SMF_22_R1_2004_01-04_ORIG_MID--AUDIO_22_R1_2004_17_Track17_wav.h5', 0], 
          ['2004', 'MIDI-Unprocessed_SMF_22_R1_2004_01-04_ORIG_MID--AUDIO_22_R1_2004_17_Track17_wav.h5', 1.0], 
@@ -265,7 +274,7 @@ class TestSampler(object):
           batch_size: int
           mini_data: bool, sample from a small amount of data for debugging
         """
-        assert split in ['train', 'validation', 'test']
+        assert split in ['train', 'val', 'test']
         self.hdf5s_dir = hdf5s_dir
         self.segment_seconds = segment_seconds
         self.hop_seconds = hop_seconds
@@ -277,32 +286,35 @@ class TestSampler(object):
         (hdf5_names, hdf5_paths) = traverse_folder(hdf5s_dir)
         self.segment_list = []
 
-        (hdf5_names, hdf5_paths) = traverse_folder(hdf5s_dir)
-        self.segment_list = []
-
         n = 0
         for hdf5_path in hdf5_paths:
-            with h5py.File(hdf5_path, 'r') as hf:
-                # Handle both string and bytes attributes
-                split_attr = hf.attrs['split']
-                if isinstance(split_attr, bytes):
-                    split_attr = split_attr.decode()
+            # Use folder structure instead of HDF5 split tags
+            # Check if the file is in the correct split subdirectory
+            split_dir = os.path.join(hdf5s_dir, split)
+            if hdf5_path.startswith(split_dir):
+                audio_name = hdf5_path.split('/')[-1]
+                # Try to get year from HDF5 attributes, fallback to folder name if not available
+                try:
+                    with h5py.File(hdf5_path, 'r') as hf:
+                        year_attr = hf.attrs.get('year', 'unknown')
+                        if isinstance(year_attr, bytes):
+                            year = year_attr.decode()
+                        else:
+                            year = str(year_attr)
+                        duration = hf.attrs['duration']
+                except:
+                    # Fallback: try to extract year from path or use 'unknown'
+                    year = 'unknown'
+                    duration = 10.0  # Default duration if not available
                 
-                if split_attr == split:
-                    audio_name = hdf5_path.split('/')[-1]
-                    year_attr = hf.attrs['year']
-                    if isinstance(year_attr, bytes):
-                        year = year_attr.decode()
-                    else:
-                        year = str(year_attr)
-                    start_time = 0
-                    while (start_time + self.segment_seconds < hf.attrs['duration']):
-                        self.segment_list.append([year, audio_name, start_time])
-                        start_time += self.hop_seconds
-                    
-                    n += 1
-                    if mini_data and n == 10:
-                        break
+                start_time = 0
+                while (start_time + self.segment_seconds < duration):
+                    self.segment_list.append([year, hdf5_path, start_time])
+                    start_time += self.hop_seconds
+                
+                n += 1
+                if mini_data and n == 10:
+                    break
         """self.segment_list looks like:
         [['2004', 'MIDI-Unprocessed_SMF_22_R1_2004_01-04_ORIG_MID--AUDIO_22_R1_2004_17_Track17_wav.h5', 0], 
          ['2004', 'MIDI-Unprocessed_SMF_22_R1_2004_01-04_ORIG_MID--AUDIO_22_R1_2004_17_Track17_wav.h5', 1.0], 

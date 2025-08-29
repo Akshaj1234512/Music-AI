@@ -19,9 +19,9 @@ class GuitarSetJAMSConverter:
         # Create MIDI output directory (robust)
         self.midi_output_path.mkdir(parents=True, exist_ok=True)
 
-        # MIDI timing for maximum precision:
-        self.ticks_per_beat = 10000     
-        self.default_tempo_bpm = 60   
+        # MIDI timing for realistic precision:
+        self.ticks_per_beat = 480     # Standard MIDI resolution
+        self.default_tempo_bpm = 120  # Realistic guitar tempo   
 
         # Channel & program (optional): nylon guitar (24)
         self.midi_channel = 0
@@ -46,8 +46,20 @@ class GuitarSetJAMSConverter:
             track = mido.MidiTrack()
             mid.tracks.append(track)
 
-            # Fixed tempo: 60 BPM -> ticks_per_second == ticks_per_beat
-            track.append(mido.MetaMessage('set_tempo', tempo=mido.bpm2tempo(self.default_tempo_bpm), time=0))
+            # Auto-detect tempo based on actual audio duration
+            if notes:
+                total_duration = max(start_times) + max(durations)
+                # Calculate BPM that makes the MIDI duration match the audio duration
+                # Assuming 4/4 time signature, calculate beats needed
+                beats_needed = total_duration * 4  # 4 beats per measure
+                calculated_bpm = beats_needed * 60 / total_duration
+                # Clamp to reasonable range (60-200 BPM)
+                calculated_bpm = max(60, min(200, calculated_bpm))
+                print(f"    Auto-detected tempo: {calculated_bpm:.1f} BPM for {total_duration:.2f}s audio")
+            else:
+                calculated_bpm = self.default_tempo_bpm
+            
+            track.append(mido.MetaMessage('set_tempo', tempo=mido.bpm2tempo(calculated_bpm), time=0))
             # Time signature
             track.append(mido.MetaMessage('time_signature', numerator=4, denominator=4, time=0))
             # Set instrument to guitar
@@ -174,7 +186,7 @@ class GuitarSetJAMSConverter:
             if events:
                 avg_delta = total_delta / len(events)
                 print(f"    MIDI timing stats: min={min_delta}, max={max_delta}, avg={avg_delta:.1f} ticks")
-                print(f"    Time resolution: {1/self.ticks_per_beat*60:.3f}s per tick at {self.default_tempo_bpm} BPM")
+                print(f"    Time resolution: {1/self.ticks_per_beat*60:.3f}s per tick at {calculated_bpm:.1f} BPM")
 
             track.append(mido.MetaMessage('end_of_track', time=0))
             

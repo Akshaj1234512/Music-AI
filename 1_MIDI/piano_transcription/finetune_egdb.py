@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GuitarSet Finetuning Script
+EGDB Finetuning Script
 
-This script finetunes the pretrained piano transcription model on GuitarSet data,
+This script finetunes the pretrained piano transcription model on EGDB data,
 following the methodology from the High Resolution Guitar Transcription paper.
 
 """
@@ -37,8 +37,8 @@ from evaluate import SegmentEvaluator
 import config
 
 
-def finetune_guitarset(args):
-    """Finetune piano transcription model on GuitarSet dataset.
+def finetune_egdb(args):
+    """Finetune piano transcription model on EGDB dataset.
 
     Args:
       workspace: str, directory of your workspace
@@ -84,7 +84,7 @@ def finetune_guitarset(args):
 
     # Paths
     # Updated to use the new folder structure: test, train, val
-    hdf5s_dir = os.path.join(workspace, 'hdf5s', 'guitarset', audio_type, '2024')
+    hdf5s_dir = os.path.join(workspace, 'hdf5s', 'egdb', audio_type, '2024')
 
     # Simplified directory structure
     checkpoints_dir = os.path.join(workspace, 'checkpoints')
@@ -135,7 +135,7 @@ def finetune_guitarset(args):
     else:
         raise Exception('Incorrect augmentation!')
 
-    # Dataset - Use existing data generator but point to GuitarSet HDF5s
+    # Dataset - Use existing data generator but point to EGDB HDF5s
     from data_generator import MaestroDataset, Sampler, TestSampler
 
     train_dataset = MaestroDataset(hdf5s_dir=hdf5s_dir, 
@@ -241,7 +241,7 @@ def finetune_guitarset(args):
 
         # Save checkpoint
         if iteration % 1000 == 0 and iteration > 0:
-            checkpoint_filename = 'guitarset_{}_log{}_iter{}_lr{:.0e}_bs{}.pth'.format(
+            checkpoint_filename = 'egdb_{}_log{}_iter{}_lr{:.0e}_bs{}.pth'.format(
                 audio_type, current_log_number, iteration, learning_rate, batch_size)
             checkpoint_path = os.path.join(log_checkpoints_dir, checkpoint_filename)
             torch.save({
@@ -348,11 +348,11 @@ def finetune_guitarset(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Finetune piano transcription model on GuitarSet')
+    parser = argparse.ArgumentParser(description='Finetune piano transcription model on EGDB')
     parser.add_argument('--workspace', type=str, required=True, 
         help='Directory of your workspace')
     parser.add_argument('--audio_type', type=str, default='combined',
-        help='Type of GuitarSet audio to use (folder name in guitarset directory)')
+        help='Type of EGDB audio to use (folder name in EGDB directory)')
     parser.add_argument('--model_type', type=str, default='Note_pedal',
         help='Model type')
     parser.add_argument('--loss_type', type=str, default='note_pedal_combined_bce',
@@ -369,7 +369,7 @@ if __name__ == '__main__':
         help='Reduce learning rate every N iterations (paper uses 10K)')
     parser.add_argument('--resume_iteration', type=int, default=0,
         help='Resume from iteration')
-    parser.add_argument('--early_stop', type=int, default=100000,
+    parser.add_argument('--early_stop', type=int, default=75000,
         help='Early stop at iteration (paper uses 100K steps)')
     parser.add_argument('--mini_data', action='store_true', default=False,
         help='Use small subset for debugging')
@@ -379,6 +379,6 @@ if __name__ == '__main__':
         help='Path to pretrained model')
     
     args = parser.parse_args()
-    args.filename = 'finetune_guitarset'
+    args.filename = 'finetune_egdb'
     
-    finetune_guitarset(args)
+    finetune_egdb(args)

@@ -53,6 +53,40 @@ class PianoTranscription(object):
 
         # Load model
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        
+        # Restructure checkpoint for Note_pedal models if needed
+        if model_type == 'Note_pedal' and 'model' in checkpoint:
+            model_state = checkpoint['model']
+            restructured_state = {}
+            
+            # Check if we need to restructure (keys have prefixes like 'note_model.')
+            if any(key.startswith('note_model.') or key.startswith('pedal_model.') for key in model_state.keys()):
+                print("Restructuring checkpoint for Note_pedal model...")
+                
+                # Create nested dictionaries
+                note_model_state = {}
+                pedal_model_state = {}
+                
+                for key, value in model_state.items():
+                    if key.startswith('note_model.'):
+                        # Remove prefix and add to note_model dict
+                        new_key = key.replace('note_model.', '')
+                        note_model_state[new_key] = value
+                    elif key.startswith('pedal_model.'):
+                        # Remove prefix and add to pedal_model dict
+                        new_key = key.replace('pedal_model.', '')
+                        pedal_model_state[new_key] = value
+                    else:
+                        # Keep other keys as is
+                        restructured_state[key] = value
+                
+                # Add nested dictionaries
+                restructured_state['note_model'] = note_model_state
+                restructured_state['pedal_model'] = pedal_model_state
+                
+                print(f"Restructured: {len(note_model_state)} note_model keys, {len(pedal_model_state)} pedal_model keys")
+                checkpoint['model'] = restructured_state
+        
         self.model.load_state_dict(checkpoint['model'], strict=False)
 
         # Parallel

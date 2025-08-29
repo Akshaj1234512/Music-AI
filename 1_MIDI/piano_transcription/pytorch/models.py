@@ -344,8 +344,17 @@ class Note_pedal(nn.Module):
         self.pedal_model = Regress_pedal_CRNN(frames_per_second, classes_num)
 
     def load_state_dict(self, m, strict=False):
-        self.note_model.load_state_dict(m['note_model'], strict=strict)
-        self.pedal_model.load_state_dict(m['pedal_model'], strict=strict)
+        # Handle different checkpoint formats
+        if 'note_model' in m and 'pedal_model' in m:
+            # Format with separate note_model and pedal_model keys
+            self.note_model.load_state_dict(m['note_model'], strict=strict)
+            self.pedal_model.load_state_dict(m['pedal_model'], strict=strict)
+        elif 'model' in m:
+            # Format with single 'model' key containing full state dict
+            super().load_state_dict(m['model'], strict=strict)
+        else:
+            # Direct state dict format
+            super().load_state_dict(m, strict=strict)
 
     def forward(self, input):
         note_output_dict = self.note_model(input)
