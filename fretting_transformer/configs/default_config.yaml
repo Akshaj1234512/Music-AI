@@ -1,0 +1,179 @@
+# Default Configuration for Fretting Transformer
+# Based on paper specifications and best practices
+
+# Data Configuration
+data:
+  synthtab_path: "/data/andreaguz/SynthTab_Dev"
+  data_category: "jams"  # Options: "jams", "acoustic"
+  max_files: null  # Set to number for testing, null for all files
+  cache_path: "data/processed/cache.pkl"
+  
+  # Sequence processing
+  max_sequence_length: 512  # Paper specification
+  chunk_size: 20  # Notes per chunk (paper specification)
+  min_notes_per_song: 5
+  max_notes_per_song: 1000
+  
+  # Data splits
+  train_split: 0.9
+  val_split: 0.05 
+  test_split: 0.05
+
+# Model Configuration (Paper Specifications)
+model:
+  type: "paper"  # Options: "paper", "debug"
+  
+  # T5 Architecture (from paper)
+  d_model: 128
+  d_ff: 1024
+  num_layers: 3
+  num_decoder_layers: 3
+  num_heads: 4
+  dropout_rate: 0.1
+  
+  # Vocabulary will be set automatically from tokenizer
+
+# Training Configuration
+training:
+  # Training hyperparameters
+  num_epochs: 100
+  batch_size: 32
+  gradient_accumulation_steps: 4
+  max_grad_norm: 1.0
+  
+  # Optimizer (Paper uses Adafactor)
+  optimizer: "adafactor"
+  learning_rate: null  # Adaptive with Adafactor
+  warmup_steps: 1000
+  
+  # Validation and logging
+  validation_steps: 500
+  logging_steps: 100
+  save_steps: 1000
+  
+  # Early stopping
+  early_stopping_patience: 10
+  early_stopping_threshold: 0.001
+  
+  # Directories
+  output_dir: "experiments/checkpoints"
+  logging_dir: "experiments/logs"
+  
+  # Model checkpointing
+  save_total_limit: 5
+  load_best_model_at_end: true
+  
+  # System
+  use_fp16: false
+  seed: 42
+
+# Inference Configuration  
+inference:
+  # Chunked generation (Paper specifications)
+  chunk_size_notes: 20
+  chunk_size_tokens: 100
+  context_overlap_tokens: 20
+  
+  # Generation parameters
+  max_length: 512
+  num_beams: 4
+  early_stopping: true
+  do_sample: false
+  temperature: 1.0
+  top_p: 1.0
+  
+  # Post-processing
+  apply_postprocessing: true
+
+# Post-processing Configuration
+postprocessing:
+  # Guitar specifications
+  standard_tuning: [64, 59, 55, 50, 45, 40]  # E A D G B E (MIDI)
+  max_fret: 24
+  
+  # Search parameters
+  neighbor_search_window: 5
+  
+  # Correction priorities
+  prefer_open_strings: true
+  prefer_lower_frets: true
+
+# Evaluation Configuration
+evaluation:
+  # Metrics (Paper specifications)
+  pitch_accuracy: true
+  tab_accuracy: true
+  playability_score: true
+  
+  # Difficulty calculation parameters (from paper)
+  alpha: 0.25  # Locality factor
+  
+  # Guitar specifications
+  standard_tuning: [64, 59, 55, 50, 45, 40]
+  max_fret: 24
+  num_strings: 6
+  
+  # Evaluation settings
+  batch_size: 16
+  compare_baseline: true
+  save_predictions: false
+
+# Tokenization Configuration
+tokenization:
+  # MIDI pitch range
+  min_pitch: 0
+  max_pitch: 127
+  
+  # Guitar specifications
+  num_strings: 6
+  max_frets: 24
+  
+  # Time quantization
+  max_time_shift: 10000
+  
+  # Special tokens
+  pad_token: "<PAD>"
+  bos_token: "<BOS>"
+  eos_token: "<EOS>"
+  unk_token: "<UNK>"
+
+# Hardware Configuration
+hardware:
+  # Device selection (auto-detected if not specified)
+  device: null  # Options: "cuda", "cpu", null for auto
+  
+  # DataLoader settings
+  num_workers: 4
+  pin_memory: true
+  
+  # Memory optimization
+  gradient_checkpointing: false
+
+# Logging and Monitoring
+logging:
+  # Logging level
+  level: "INFO"
+  
+  # Weights & Biases (optional)
+  use_wandb: false
+  wandb_project: "fretting-transformer"
+  wandb_entity: null
+  
+  # TensorBoard (optional)  
+  use_tensorboard: true
+  
+  # Progress tracking
+  progress_bar: true
+  
+# Experimental Features
+experimental:
+  # Conditional model features
+  use_capo_conditioning: false
+  use_tuning_conditioning: false
+  
+  # Advanced training techniques
+  use_gradient_accumulation: true
+  use_mixed_precision: false
+  
+  # Data augmentation
+  apply_data_augmentation: false
