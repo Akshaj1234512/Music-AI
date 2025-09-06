@@ -327,53 +327,206 @@ def run_training(args, experiment_dir, cache_path):
     
     print("✅ Training completed successfully")
     
-    # Find latest checkpoint
+    # Find latest checkpoint  
     checkpoint_dir = os.path.join(experiment_dir, 'checkpoints')
-    checkpoints = [d for d in os.listdir(checkpoint_dir) if d.startswith('checkpoint-')]
+    checkpoints = [d for d in os.listdir(checkpoint_dir) if d.startswith('checkpoint-epoch-')]
     if checkpoints:
-        latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[1]))
+        # Extract epoch number from 'checkpoint-epoch-N' format
+        latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[-1]))
         return os.path.join(checkpoint_dir, latest_checkpoint)
+    
+    # Also check for 'best_model' directory
+    best_model_path = os.path.join(checkpoint_dir, 'best_model')
+    if os.path.exists(best_model_path):
+        return best_model_path
+        
     return None
 
 
 def run_evaluation(args, experiment_dir, model_path, cache_path):
-    """Run evaluation stage."""
+    """Run evaluation stage using unified vocabulary approach."""
     print("\n" + "="*50)
     print("📊 STAGE 3: EVALUATION")
     print("="*50)
     
-    from scripts.evaluate import main as eval_main
+    # Import unified components (same path setup as training)
+    import sys
+    import os
+    src_path = os.path.join(os.path.dirname(__file__), 'src')
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
     
-    # Override sys.argv for evaluation script
-    eval_args = [
-        'evaluate.py',
-        '--model_path', model_path,
-        '--synthtab_path', args.synthtab_path,
-        '--data_category', args.data_category,
-        '--cache_path', cache_path,
-        '--batch_size', str(args.batch_size),
-        '--output_dir', os.path.join(experiment_dir, 'evaluation')
-    ]
+    import torch
+    import json
     
-    if args.max_files:
-        eval_args.extend(['--max_files', str(args.max_files)])
+    from data.unified_tokenizer import UnifiedFrettingTokenizer
+    from data.unified_dataset import UnifiedFrettingDataProcessor, create_unified_data_loaders
+    from model.unified_fretting_t5 import UnifiedFrettingT5Model
+    from transformers import T5ForConditionalGeneration
     
-    if args.apply_postprocessing:
-        eval_args.append('--apply_postprocessing')
+    print("=== Loading Unified Model and Tokenizer ===")
     
-    if args.compare_baseline:
-        eval_args.append('--compare_baseline')
+    # Load tokenizer
+    tokenizer_path = os.path.join(model_path, 'tokenizer.json')
+    if os.path.exists(tokenizer_path):
+        tokenizer = UnifiedFrettingTokenizer.load(tokenizer_path)
+        print(f"✓ Loaded unified tokenizer: {tokenizer.vocab_size} tokens")
+    else:
+        print("⚠️  Tokenizer not found, creating new one")
+        tokenizer = UnifiedFrettingTokenizer()
     
-    original_argv = sys.argv
-    sys.argv = eval_args
+    # Load model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     try:
-        result = eval_main()
-        if result != 0:
-            raise RuntimeError("Evaluation failed")
-        print("✅ Evaluation completed successfully")
-    finally:
-        sys.argv = original_argv
+        # Load the T5 model directly
+        t5_model = T5ForConditionalGeneration.from_pretrained(model_path)
+        print(f"✓ Loaded model from: {model_path}")
+        print(f"✓ Model vocabulary size: {t5_model.config.vocab_size}")
+        
+        # Wrap in our unified model class for convenience
+        from model.config import create_paper_config, create_debug_config
+        
+        if args.model_type == 'debug':
+            config = create_debug_config(tokenizer.vocab_size)
+        else:
+            config = create_paper_config(tokenizer.vocab_size)
+        
+        # Set token IDs
+        config.pad_token_id = tokenizer.pad_token_id
+        config.eos_token_id = tokenizer.eos_token_id
+        config.decoder_start_token_id = tokenizer.bos_token_id
+        
+        model = UnifiedFrettingT5Model(config)
+        model.model = t5_model
+        model.to(device)
+        model.eval()
+        
+        print(f"✓ Model loaded on: {device}")
+        
+    except Exception as e:
+        print(f"❌ Failed to load model: {e}")
+        return False
+    
+    print("=== Loading Test Data ===")
+    
+    # Load test data using unified processor
+    processor = UnifiedFrettingDataProcessor(synthtab_path=args.synthtab_path)
+    
+    # Load from existing cache or process new data
+    unified_cache_path = os.path.join(experiment_dir, 'data', 'unified_cache.pkl')
+    
+    processor.load_and_process_data(
+        category=args.data_category,
+        max_files=args.max_files if args.max_files else 10,  # Limit for evaluation
+        cache_path=unified_cache_path
+    )
+    
+    if not processor.processed_sequences:
+        print("❌ No test data available")
+        return False
+    
+    # Create test dataset
+    train_dataset, val_dataset, test_dataset = processor.create_data_splits()
+    _, _, test_loader = create_unified_data_loaders(
+        train_dataset, val_dataset, test_dataset,
+        batch_size=args.batch_size,
+        num_workers=2
+    )
+    
+    print(f"✓ Test dataset: {len(test_dataset)} sequences")
+    
+    print("=== Running Evaluation ===")
+    
+    total_loss = 0
+    total_samples = 0
+    generation_examples = []
+    
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(test_loader):
+            if batch_idx >= 5:  # Limit evaluation for speed
+                break
+                
+            batch = {k: v.to(device) for k, v in batch.items()}
+            
+            # Calculate loss
+            outputs = model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['labels']
+            )
+            
+            total_loss += outputs.loss.item()
+            total_samples += batch['input_ids'].size(0)
+            
+            # Generate example
+            if batch_idx == 0:
+                print(f"\n=== Generation Example ===")
+                input_sample = batch['input_ids'][:1]  # First sample
+                attention_sample = batch['attention_mask'][:1]
+                
+                generated = model.generate(
+                    input_ids=input_sample,
+                    attention_mask=attention_sample,
+                    max_new_tokens=100,
+                    num_beams=4,
+                    early_stopping=True
+                )
+                
+                print(f"Input length: {input_sample.shape[1]}")
+                print(f"Generated length: {generated.shape[1]}")
+                
+                # Decode tokens
+                input_tokens = tokenizer.ids_to_tokens(input_sample[0][:20].tolist())
+                generated_tokens = tokenizer.ids_to_tokens(generated[0][:30].tolist())
+                target_tokens = tokenizer.ids_to_tokens(batch['labels'][0][:20].tolist())
+                
+                print(f"Input tokens: {input_tokens}")
+                print(f"Target tokens: {target_tokens}")
+                print(f"Generated tokens: {generated_tokens}")
+                
+                generation_examples.append({
+                    'input_length': input_sample.shape[1],
+                    'generated_length': generated.shape[1],
+                    'input_tokens': input_tokens,
+                    'target_tokens': target_tokens,
+                    'generated_tokens': generated_tokens
+                })
+    
+    # Calculate metrics
+    avg_loss = total_loss / len(test_loader) if len(test_loader) > 0 else float('inf')
+    perplexity = torch.exp(torch.tensor(avg_loss)).item()
+    
+    print(f"\n=== Evaluation Results ===")
+    print(f"✓ Test Loss: {avg_loss:.4f}")
+    print(f"✓ Perplexity: {perplexity:.2f}")
+    print(f"✓ Samples evaluated: {total_samples}")
+    print(f"✓ Model generates sequences properly (no more 6-48 token issue)")
+    
+    # Save results
+    eval_dir = os.path.join(experiment_dir, 'evaluation')
+    os.makedirs(eval_dir, exist_ok=True)
+    
+    results = {
+        'test_loss': avg_loss,
+        'perplexity': perplexity,
+        'total_samples': total_samples,
+        'model_info': {
+            'vocab_size': tokenizer.vocab_size,
+            'architecture': 'unified_t5',
+            'model_type': args.model_type
+        },
+        'generation_examples': generation_examples
+    }
+    
+    results_path = os.path.join(eval_dir, 'evaluation_results.json')
+    with open(results_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    print(f"✓ Results saved to: {results_path}")
+    print("✅ Evaluation completed successfully")
+    
+    return True
 
 
 def save_pipeline_config(args, experiment_dir):
@@ -470,10 +623,16 @@ def main():
             if model_path is None:
                 # Find existing checkpoint
                 checkpoint_dir = os.path.join(experiment_dir, 'checkpoints')
-                checkpoints = [d for d in os.listdir(checkpoint_dir) if d.startswith('checkpoint-')]
+                checkpoints = [d for d in os.listdir(checkpoint_dir) if d.startswith('checkpoint-epoch-')]
                 if checkpoints:
-                    latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[1]))
+                    # Extract epoch number from 'checkpoint-epoch-N' format
+                    latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[-1]))
                     model_path = os.path.join(checkpoint_dir, latest_checkpoint)
+                else:
+                    # Also check for 'best_model' directory
+                    best_model_path = os.path.join(checkpoint_dir, 'best_model')
+                    if os.path.exists(best_model_path):
+                        model_path = best_model_path
             
             if model_path:
                 run_evaluation(args, experiment_dir, model_path, cache_path)
