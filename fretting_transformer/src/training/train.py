@@ -35,7 +35,7 @@ class TrainingConfig:
     
     # Learning rate and optimization
     learning_rate: float = None  # Adaptive with Adafactor
-    warmup_steps: int = 1000
+    warmup_steps: int = 100  # Reduced for smaller dataset
     
     # Validation and logging
     validation_steps: int = 500
@@ -43,7 +43,7 @@ class TrainingConfig:
     save_steps: int = 1000
     
     # Early stopping
-    early_stopping_patience: int = 10
+    early_stopping_patience: int = 30  # More patience for meaningful training
     early_stopping_threshold: float = 0.001
     
     # Directories
@@ -114,7 +114,7 @@ class FrettingTrainer:
         
         # Mixed precision training
         if self.config.use_fp16:
-            self.scaler = torch.cuda.amp.GradScaler()
+            self.scaler = torch.amp.GradScaler('cuda')
         else:
             self.scaler = None
     
@@ -252,17 +252,28 @@ class FrettingTrainer:
         
         for step, batch in enumerate(progress_bar):
             loss = self.training_step(batch)
-            total_loss += loss
-            epoch_steps += 1
+            if loss is not None and isinstance(loss, (int, float)):
+                total_loss += loss
+                epoch_steps += 1
+            else:
+                self.logger.error(f"Training step returned invalid loss: {loss}")
+                continue
             
             # Update progress bar
-            progress_bar.set_postfix({'loss': f'{loss:.4f}'})
+            loss_str = f'{loss:.4f}' if isinstance(loss, (int, float)) else 'n/a'
+            progress_bar.set_postfix({'loss': loss_str})
             
             # Logging
             if self.global_step % self.config.logging_steps == 0:
+                # Safe formatting helper
+                def _fmt_num(x, spec=".4f"):
+                    return f"{x:{spec}}" if isinstance(x, (int, float)) else "n/a"
+                
+                lr_val = self.optimizer.param_groups[0].get('lr', 0)
                 self.logger.info(
-                    f"Step {self.global_step}: loss={loss:.4f}, "
-                    f"lr={self.optimizer.param_groups[0].get('lr', 0):.2e}"
+                    f"Step {self.global_step}: "
+                    f"loss={_fmt_num(loss)}, "
+                    f"lr={_fmt_num(lr_val, '.2e')}"
                 )
             
             # Validation during training

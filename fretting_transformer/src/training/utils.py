@@ -136,6 +136,11 @@ def plot_training_curves(train_losses: List[float],
     """
     plt.figure(figsize=(10, 6))
     
+    # Ensure train and val losses have same length
+    min_length = min(len(train_losses), len(val_losses))
+    train_losses = train_losses[:min_length]
+    val_losses = val_losses[:min_length]
+    
     epochs = range(1, len(train_losses) + 1)
     
     plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2)
