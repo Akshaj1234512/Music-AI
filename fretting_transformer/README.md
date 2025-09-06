@@ -343,6 +343,31 @@ metrics = evaluator.evaluate_sequence(input_tokens, predicted_tokens, ground_tru
 - Use gradient accumulation for larger effective batch sizes
 - Apply post-processing for production use
 
+### Long-Running Training
+
+For full dataset training that may take hours/days, use background execution:
+
+```bash
+# Run in background with nohup (continues after SSH disconnect)
+nohup python run_pipeline.py \
+    --output_dir /data/andreaguz/fretting_experiments/full_training \
+    --synthtab_path /data/andreaguz/SynthTab_Dev \
+    --gpu_ids "7" \
+    --model_type paper \
+    --num_epochs 100 \
+    --batch_size 32 \
+    --use_fp16 \
+    --apply_postprocessing \
+    --clean_start \
+    > training_log.txt 2>&1 &
+
+# Monitor progress
+tail -f training_log.txt
+
+# Check if still running
+ps aux | grep run_pipeline
+```
+
 ## Contributing
 
 1. Follow the paper's specifications for model architecture
