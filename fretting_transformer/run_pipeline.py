@@ -130,78 +130,202 @@ def create_experiment_dir(base_dir=None, experiment_name=None, clean_start=False
 
 
 def run_data_preparation(args, experiment_dir):
-    """Run data preparation stage."""
+    """Run data preparation stage using unified approach."""
     print("\n" + "="*50)
     print("📊 STAGE 1: DATA PREPARATION")
     print("="*50)
     
-    from scripts.prepare_data import main as prepare_main
+    # With unified approach, data preparation is handled during training
+    # Just create the data directory and validate the dataset path
+    data_dir = os.path.join(experiment_dir, 'data')
+    os.makedirs(data_dir, exist_ok=True)
     
-    # Override sys.argv for the prepare_data script
-    data_args = [
-        'prepare_data.py',
-        '--synthtab_path', args.synthtab_path,
-        '--data_category', args.data_category,
-        '--output_dir', os.path.join(experiment_dir, 'data'),
-        '--save_tokenizer',
-        '--analyze_data'
-    ]
+    if not os.path.exists(args.synthtab_path):
+        raise RuntimeError(f"SynthTab dataset not found at: {args.synthtab_path}")
     
+    print(f"✓ SynthTab dataset found at: {args.synthtab_path}")
+    print(f"✓ Using data category: {args.data_category}")
     if args.max_files:
-        data_args.extend(['--max_files', str(args.max_files)])
+        print(f"✓ Max files to process: {args.max_files}")
+    else:
+        print(f"✓ Processing all files")
     
-    original_argv = sys.argv
-    sys.argv = data_args
+    print("✅ Data preparation setup completed")
+    print("   (Actual data processing will happen during training with unified vocabulary)")
     
-    try:
-        result = prepare_main()
-        if result != 0:
-            raise RuntimeError("Data preparation failed")
-        print("✅ Data preparation completed successfully")
-    finally:
-        sys.argv = original_argv
-    
-    return os.path.join(experiment_dir, 'data', 'synthtab_cache.pkl')
+    return os.path.join(data_dir, 'unified_cache.pkl')
 
 
 def run_training(args, experiment_dir, cache_path):
-    """Run training stage."""
+    """Run training stage using unified vocabulary approach."""
     print("\n" + "="*50)
     print("🏋️  STAGE 2: TRAINING")
     print("="*50)
     
-    from scripts.train_model import main as train_main
+    # Use unified training approach directly instead of calling scripts
+    import sys
+    import os
+    src_path = os.path.join(os.path.dirname(__file__), 'src')
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
     
-    # Override sys.argv for training script
-    train_args = [
-        'train_model.py',
-        '--synthtab_path', args.synthtab_path,
-        '--data_category', args.data_category,
-        '--cache_path', cache_path,
-        '--model_type', args.model_type,
-        '--num_epochs', str(args.num_epochs),
-        '--batch_size', str(args.batch_size),
-        '--output_dir', os.path.join(experiment_dir, 'checkpoints'),
-        '--logging_dir', os.path.join(experiment_dir, 'logs'),
-        '--seed', str(args.seed)
-    ]
+    import torch
+    from torch.optim import AdamW
+    from torch.amp import autocast, GradScaler
+    from transformers import get_linear_schedule_with_warmup
     
-    if args.max_files:
-        train_args.extend(['--max_files', str(args.max_files)])
+    from data.unified_tokenizer import UnifiedFrettingTokenizer
+    from data.unified_dataset import UnifiedFrettingDataProcessor, create_unified_data_loaders
+    from model.unified_fretting_t5 import create_model_from_tokenizer
     
-    if args.use_fp16:
-        train_args.append('--use_fp16')
+    def set_seed(seed):
+        import random
+        import numpy as np
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
     
-    original_argv = sys.argv
-    sys.argv = train_args
+    print("=== Fretting Transformer Training ===")
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA device: {torch.cuda.get_device_name()}")
     
-    try:
-        result = train_main()
-        if result != 0:
-            raise RuntimeError("Training failed")
-        print("✅ Training completed successfully")
-    finally:
-        sys.argv = original_argv
+    # Setup
+    set_seed(args.seed)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    checkpoints_dir = os.path.join(experiment_dir, 'checkpoints')
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    
+    # Save configuration
+    config_path = os.path.join(checkpoints_dir, 'training_config.json')
+    
+    print("=== Data Loading and Processing ===")
+    # Create unified tokenizer
+    tokenizer = UnifiedFrettingTokenizer()
+    print(f"Unified vocabulary size: {tokenizer.vocab_size}")
+    
+    # Load processed data using unified processor
+    processor = UnifiedFrettingDataProcessor(synthtab_path=args.synthtab_path)
+    processor.load_and_process_data(
+        category=args.data_category,
+        max_files=args.max_files,
+        cache_path=os.path.join(experiment_dir, 'data', 'unified_cache.pkl')
+    )
+    
+    if not processor.processed_sequences:
+        raise RuntimeError("No sequences processed - check data path")
+    
+    # Create data splits
+    train_dataset, val_dataset, test_dataset = processor.create_data_splits()
+    train_loader, val_loader, test_loader = create_unified_data_loaders(
+        train_dataset, val_dataset, test_dataset,
+        batch_size=args.batch_size,
+        num_workers=4
+    )
+    
+    print("=== Model Creation ===")
+    model = create_model_from_tokenizer(tokenizer, args.model_type)
+    model_info = model.get_model_info()
+    print(f"Model size: {model_info['parameters_millions']:.2f}M parameters")
+    model.to(device)
+    
+    # Save config with model info
+    config = {
+        'args': vars(args),
+        'tokenizer_info': tokenizer.get_vocab_info(),
+        'model_info': model_info,
+        'vocab_size': tokenizer.vocab_size,
+        'architecture': 'unified_t5'
+    }
+    with open(config_path, 'w') as f:
+        import json
+        json.dump(config, f, indent=2)
+    
+    # Setup training
+    optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
+    total_steps = len(train_loader) * args.num_epochs // 4  # gradient_accumulation_steps = 4
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=1000, num_training_steps=total_steps)
+    scaler = GradScaler() if args.use_fp16 else None
+    
+    print(f"=== Training ({args.num_epochs} epochs) ===")
+    best_val_loss = float('inf')
+    
+    for epoch in range(args.num_epochs):
+        print(f"\nEpoch {epoch + 1}/{args.num_epochs}")
+        model.train()
+        total_loss = 0
+        
+        for step, batch in enumerate(train_loader):
+            batch = {k: v.to(device) for k, v in batch.items()}
+            
+            with autocast('cuda', enabled=args.use_fp16):
+                outputs = model(
+                    input_ids=batch['input_ids'],
+                    attention_mask=batch['attention_mask'],
+                    decoder_input_ids=batch.get('decoder_input_ids'),
+                    labels=batch['labels']
+                )
+                loss = outputs.loss / 4  # gradient accumulation
+            
+            if args.use_fp16:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
+            
+            total_loss += loss.item() * 4
+            
+            if (step + 1) % 4 == 0:  # gradient accumulation
+                if args.use_fp16:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+            
+            if (step + 1) % 50 == 0:
+                avg_loss = total_loss / (step + 1)
+                print(f"  Step {step + 1}/{len(train_loader)}: Loss = {avg_loss:.4f}")
+        
+        avg_train_loss = total_loss / len(train_loader)
+        print(f"  Training loss: {avg_train_loss:.4f}")
+        
+        # Validation
+        if len(val_loader) > 0:
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for batch in val_loader:
+                    batch = {k: v.to(device) for k, v in batch.items()}
+                    outputs = model(
+                        input_ids=batch['input_ids'],
+                        attention_mask=batch['attention_mask'],
+                        decoder_input_ids=batch.get('decoder_input_ids'),
+                        labels=batch['labels']
+                    )
+                    val_loss += outputs.loss.item()
+            
+            val_loss /= len(val_loader)
+            print(f"  Validation loss: {val_loss:.4f}")
+            
+            # Save best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model_path = os.path.join(checkpoints_dir, 'best_model')
+                model.model.save_pretrained(best_model_path)
+                tokenizer.save(os.path.join(best_model_path, 'tokenizer.json'))
+                print(f"  💾 Saved new best model (val_loss: {val_loss:.4f})")
+        
+        # Save checkpoint every 5 epochs
+        if (epoch + 1) % 5 == 0:
+            checkpoint_path = os.path.join(checkpoints_dir, f'checkpoint-epoch-{epoch + 1}')
+            model.model.save_pretrained(checkpoint_path)
+            tokenizer.save(os.path.join(checkpoint_path, 'tokenizer.json'))
+            print(f"  💾 Saved checkpoint: {checkpoint_path}")
+    
+    print("✅ Training completed successfully")
     
     # Find latest checkpoint
     checkpoint_dir = os.path.join(experiment_dir, 'checkpoints')

@@ -177,12 +177,19 @@ def run_evaluation(model, tokenizer, test_loader, output_dir):
         for batch in test_loader:
             batch = {k: v.to(device) for k, v in batch.items()}
             
-            # Generate predictions
+            # Generate predictions with proper constraints
+            input_length = batch['input_ids'].size(1)
+            max_new_tokens = min(input_length * 2, 256)  # At most 2x input length
+            
             generated = model.generate(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
-                max_length=512,
-                num_beams=4
+                max_new_tokens=max_new_tokens,
+                num_beams=4,
+                early_stopping=True,
+                repetition_penalty=1.1,
+                eos_token_id=tokenizer.output_token_to_id[tokenizer.config.eos_token],
+                pad_token_id=tokenizer.output_token_to_id[tokenizer.config.pad_token]
             )
             
             # Convert to tokens

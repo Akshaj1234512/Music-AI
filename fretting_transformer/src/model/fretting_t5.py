@@ -40,6 +40,9 @@ class FrettingT5Model(nn.Module):
         # If decoder vocab is different from model vocab, add custom output projection
         if self.output_vocab_size != t5_config.vocab_size:
             self.custom_lm_head = nn.Linear(config.d_model, self.output_vocab_size, bias=False)
+            # Initialize with proper scaling to prevent extreme logits
+            with torch.no_grad():
+                self.custom_lm_head.weight.normal_(mean=0.0, std=config.d_model**-0.5)
             self.use_custom_head = True
             print(f"Created custom output head: {config.d_model} -> {self.output_vocab_size}")
         else:
@@ -64,7 +67,8 @@ class FrettingT5Model(nn.Module):
         
         # Initialize custom head if it exists
         if self.custom_lm_head is not None:
-            self.custom_lm_head.weight.data.normal_(mean=0.0, std=self.config.initializer_factor)
+            # Use proper scaling for the custom head to prevent extreme logits
+            self.custom_lm_head.weight.data.normal_(mean=0.0, std=self.config.d_model**-0.5)
     
     def forward(self,
                 input_ids: torch.Tensor,
@@ -88,7 +92,7 @@ class FrettingT5Model(nn.Module):
             Model outputs including loss and logits
         """
         
-        if self.use_custom_head and labels is not None:
+        if self.use_custom_head:
             # Custom forward pass for different vocab sizes
             # Get decoder outputs without computing loss, but with hidden states
             outputs = self.model(

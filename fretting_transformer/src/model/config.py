@@ -210,9 +210,33 @@ class FrettingTransformerConfig:
         return cls(**config_dict)
 
 
-def create_paper_config(input_vocab_size: int, output_vocab_size: int) -> FrettingTransformerConfig:
+def create_paper_config(vocab_size: int) -> FrettingTransformerConfig:
     """
-    Create the exact configuration used in the paper.
+    Create the exact configuration used in the paper with unified vocabulary.
+    
+    Args:
+        vocab_size: Unified vocabulary size from tokenizer
+        
+    Returns:
+        FrettingTransformerConfig matching paper specs
+    """
+    config = FrettingTransformerConfig(
+        d_model=128,
+        d_kv=32,  # 128 / 4 heads
+        d_ff=1024,
+        num_layers=3,
+        num_decoder_layers=3,
+        num_heads=4,
+        max_length=512,
+        dropout_rate=0.1,
+        vocab_size=vocab_size,
+        decoder_vocab_size=vocab_size  # Same for unified vocab
+    )
+    return config
+
+def create_paper_config_legacy(input_vocab_size: int, output_vocab_size: int) -> FrettingTransformerConfig:
+    """
+    Create the exact configuration used in the paper (legacy version with separate vocabs).
     
     Args:
         input_vocab_size: Input vocabulary size from tokenizer
@@ -235,9 +259,33 @@ def create_paper_config(input_vocab_size: int, output_vocab_size: int) -> Fretti
     )
 
 
-def create_debug_config(input_vocab_size: int, output_vocab_size: int) -> FrettingTransformerConfig:
+def create_debug_config(vocab_size: int) -> FrettingTransformerConfig:
     """
-    Create a smaller configuration for debugging/testing.
+    Create a smaller configuration for debugging/testing with unified vocabulary.
+    
+    Args:
+        vocab_size: Unified vocabulary size from tokenizer
+        
+    Returns:
+        Smaller FrettingTransformerConfig for testing
+    """
+    config = FrettingTransformerConfig(
+        d_model=64,
+        d_kv=16,  # 64 / 4 heads
+        d_ff=256,
+        num_layers=2,
+        num_decoder_layers=2,
+        num_heads=4,
+        max_length=256,
+        dropout_rate=0.1,
+        vocab_size=vocab_size,
+        decoder_vocab_size=vocab_size  # Same for unified vocab
+    )
+    return config
+
+def create_debug_config_legacy(input_vocab_size: int, output_vocab_size: int) -> FrettingTransformerConfig:
+    """
+    Create a smaller configuration for debugging/testing (legacy version).
     
     Args:
         input_vocab_size: Input vocabulary size from tokenizer
