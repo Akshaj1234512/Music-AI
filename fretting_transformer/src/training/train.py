@@ -86,17 +86,14 @@ class FrettingTrainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model.to(self.device)
         
-        # Initialize optimizer (Adafactor with adaptive learning rate)
+        # Initialize optimizer (Adafactor with internal LR scheduling)
         self.optimizer = Adafactor(
             self.model.parameters(),
+            relative_step=True,    # Let Adafactor handle LR internally
             scale_parameter=True,
-            relative_step=True,
-            warmup_init=True,  # Changed to True as recommended
-            lr=None  # Use adaptive learning rate
+            warmup_init=True
         )
-        
-        # Initialize scheduler for Adafactor
-        self.scheduler = AdafactorSchedule(self.optimizer)
+        # No external scheduler needed - Adafactor handles it internally
         
         # Set up directories
         self.setup_directories()
@@ -175,14 +172,23 @@ class FrettingTrainer:
             # Validation phase
             val_loss = self.validate()
             
-            # Learning rate tracking - get from scheduler for Adafactor
-            try:
-                current_lr = self.scheduler.get_lr()[0] if hasattr(self.scheduler, 'get_lr') else 0.0
-            except:
-                current_lr = self.optimizer.param_groups[0].get('lr', 0.0)
-                if current_lr is None:
-                    current_lr = 0.0
+            # Learning rate tracking (Adafactor, relative_step=True supported)
+            def _current_lr_from_adafactor(optimizer):
+                try:
+                    group = optimizer.param_groups[0]
+                    # If LR is explicit (e.g., relative_step=False), just use it
+                    if group.get("lr", None) is not None:
+                        return float(group["lr"])
+                    # Otherwise compute the effective LR like Adafactor does
+                    p = group["params"][0]
+                    state = optimizer.state.get(p, {})
+                    # _get_lr needs both the group and the param's state (requires at least one .step() happened)
+                    return float(optimizer._get_lr(group, state))  # HF Adafactor private helper
+                except Exception:
+                    # Fallback to 0.0 if called before any optimizer.step()
+                    return 0.0
             
+            current_lr = _current_lr_from_adafactor(self.optimizer)
             self.learning_rates.append(current_lr)
             
             # Log epoch results
@@ -265,6 +271,15 @@ class FrettingTrainer:
                 self.logger.info(f"Validation at step {self.global_step}: loss={val_loss:.4f}")
                 self.model.train()  # Return to training mode
         
+        # Flush leftover gradients if epoch ended mid-accumulation block
+        leftover = (self.global_step % self.config.gradient_accumulation_steps) != 0
+        if leftover:
+            if self.scaler is not None:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                self.optimizer.step()
+        
         avg_loss = total_loss / epoch_steps if epoch_steps > 0 else 0.0
         self.train_losses.append(avg_loss)
         
@@ -283,52 +298,54 @@ class FrettingTrainer:
         # Move batch to device
         batch = {k: v.to(self.device) for k, v in batch.items()}
         
-        # Forward pass with mixed precision if enabled
-        if self.scaler:
-            with torch.cuda.amp.autocast():
+        use_amp = self.scaler is not None
+        accum_steps = max(1, int(self.config.gradient_accumulation_steps))  # Guard against 0
+        
+        # Zero gradients at accumulation boundary
+        if self.global_step % accum_steps == 0:
+            self.optimizer.zero_grad(set_to_none=True)
+        
+        # --- Forward pass ---
+        if use_amp:
+            with torch.amp.autocast('cuda'):
                 outputs = self.model(**batch)
                 loss = outputs.loss
-            
-            # Backward pass with gradient scaling
-            self.scaler.scale(loss).backward()
-            
-            # Gradient accumulation
-            if (self.global_step + 1) % self.config.gradient_accumulation_steps == 0:
-                # Gradient clipping
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm
-                )
-                
-                # Optimizer step
-                self.scaler.step(self.optimizer)
-                self.scheduler.step()  # Step the Adafactor scheduler
-                self.scaler.update()
-                self.optimizer.zero_grad()
         else:
-            # Standard forward pass
             outputs = self.model(**batch)
             loss = outputs.loss
-            
-            # Backward pass
-            loss.backward()
-            
-            # Gradient accumulation
-            if (self.global_step + 1) % self.config.gradient_accumulation_steps == 0:
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm
-                )
-                
-                # Optimizer step
-                self.optimizer.step()
-                self.scheduler.step()  # Step the Adafactor scheduler
-                self.optimizer.zero_grad()
         
+        # Scale loss for gradient accumulation to maintain effective LR
+        if accum_steps > 1:
+            loss = loss / accum_steps
+        
+        # --- Backward pass ---
+        if use_amp:
+            self.scaler.scale(loss).backward()
+        else:
+            loss.backward()
+        
+        # --- Step only on accumulation boundary ---
+        do_step = ((self.global_step + 1) % accum_steps == 0)
+        
+        # Optional gradient clipping (only when stepping)
+        if do_step and self.config.max_grad_norm:
+            if use_amp:
+                self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+        
+        if do_step:
+            if use_amp:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                self.optimizer.step()
+            # No scheduler.step(): Adafactor (relative_step=True) handles LR internally
+        
+        # Advance global micro-step counter each batch
         self.global_step += 1
-        return loss.item()
+        
+        # ALWAYS return a float (unscaled loss for logging)
+        return float(loss.detach().item() * accum_steps)
     
     def validate(self) -> float:
         """
@@ -346,7 +363,7 @@ class FrettingTrainer:
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 
                 if self.scaler:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         outputs = self.model(**batch)
                         loss = outputs.loss
                 else:
