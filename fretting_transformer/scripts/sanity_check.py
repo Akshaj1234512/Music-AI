@@ -269,10 +269,17 @@ def check_forward_pass(model, tokenizer, device, batch_size, sequence_length):
         print(f"✅ Created dummy batch: {input_ids.shape}")
         
         # Forward pass
+        # T5 needs decoder_input_ids for training (shift labels right)
+        decoder_input_ids = torch.cat([
+            torch.full((batch_size, 1), tokenizer.output_token_to_id[tokenizer.config.bos_token], device=device),
+            labels[:, :-1]
+        ], dim=1)
+        
         with torch.no_grad():
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
+                decoder_input_ids=decoder_input_ids,
                 labels=labels
             )
             
@@ -283,6 +290,14 @@ def check_forward_pass(model, tokenizer, device, batch_size, sequence_length):
             print(f"   - Loss: {loss.item():.4f}")
             print(f"   - Logits shape: {logits.shape}")
             print(f"   - Expected logits shape: ({batch_size}, {sequence_length}, {output_vocab_size})")
+            
+            # Check if this is a vocab size mismatch (common issue)
+            if logits.shape[2] != output_vocab_size:
+                print(f"⚠️  Vocabulary size mismatch detected!")
+                print(f"     Model output vocab: {logits.shape[2]}")
+                print(f"     Tokenizer output vocab: {output_vocab_size}")
+                print(f"     This indicates the model was created with wrong vocab size")
+                return False
             
             if logits.shape != (batch_size, sequence_length, output_vocab_size):
                 print(f"❌ Unexpected logits shape!")
@@ -396,10 +411,18 @@ def check_data_pipeline(synthtab_path, data_category, max_files):
     print("=" * 50)
     
     try:
-        from data.dataset import FrettingDataProcessor
+        from data.dataset import FrettingDataProcessor, DataConfig
         
-        # Create processor with small test config
-        processor = FrettingDataProcessor(synthtab_path=synthtab_path)
+        # Create processor with relaxed test config for sanity check
+        test_config = DataConfig(
+            max_sequence_length=256,  # Smaller for testing
+            min_notes_per_song=1,     # Very permissive
+            max_notes_per_song=10000  # Very permissive
+        )
+        processor = FrettingDataProcessor(
+            synthtab_path=synthtab_path,
+            data_config=test_config
+        )
         
         print("✅ Created data processor")
         
@@ -407,7 +430,7 @@ def check_data_pipeline(synthtab_path, data_category, max_files):
         processor.load_and_process_data(
             category=data_category,
             max_files=max_files,
-            cache_path='temp_test_cache.pkl'
+            cache_path='/data/andreaguz/temp_test_cache.pkl'
         )
         
         print(f"✅ Processed {len(processor.processed_sequences)} sequences")
@@ -425,8 +448,8 @@ def check_data_pipeline(synthtab_path, data_category, max_files):
             print(f"   - Attention mask shape: {sample['attention_mask'].shape}")
         
         # Clean up
-        if os.path.exists('temp_test_cache.pkl'):
-            os.remove('temp_test_cache.pkl')
+        if os.path.exists('/data/andreaguz/temp_test_cache.pkl'):
+            os.remove('/data/andreaguz/temp_test_cache.pkl')
         
         return True
         
@@ -458,7 +481,7 @@ def run_full_pipeline_test(args):
             '--model_type', 'debug',
             '--num_epochs', '1',
             '--batch_size', '2',
-            '--output_dir', 'temp_pipeline_test',
+            '--output_dir', '/data/andreaguz/SanityCheck',
             '--clean_start'
         ]
         
@@ -482,8 +505,8 @@ def run_full_pipeline_test(args):
             
             # Clean up
             import shutil
-            if os.path.exists('temp_pipeline_test'):
-                shutil.rmtree('temp_pipeline_test')
+            if os.path.exists('/data/andreaguz/SanityCheck'):
+                shutil.rmtree('/data/andreaguz/SanityCheck')
         
     except Exception as e:
         print(f"❌ Full pipeline test failed: {e}")

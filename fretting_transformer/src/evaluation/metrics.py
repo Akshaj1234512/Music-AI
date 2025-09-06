@@ -13,8 +13,8 @@ from typing import List, Dict, Tuple, Optional, Union, Any
 from dataclasses import dataclass
 import numpy as np
 
-from ..data.tokenizer import FrettingTokenizer
-from ..data.synthtab_loader import Note
+from data.tokenizer import FrettingTokenizer
+from data.synthtab_loader import Note
 
 
 @dataclass
@@ -462,7 +462,7 @@ class FrettingEvaluator:
 
 def test_evaluation_metrics():
     """Test the evaluation metrics system."""
-    from ..data.tokenizer import FrettingTokenizer
+    from data.tokenizer import FrettingTokenizer
     
     tokenizer = FrettingTokenizer()
     evaluator = FrettingEvaluator(tokenizer)

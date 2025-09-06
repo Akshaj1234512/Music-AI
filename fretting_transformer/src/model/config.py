@@ -67,8 +67,12 @@ class FrettingTransformerConfig:
         # Ensure decoder layers match encoder layers if not specified
         num_decoder_layers = self.num_decoder_layers or self.num_layers
         
+        # For Fretting Transformer, we need different vocab sizes for encoder/decoder
+        # Use the larger vocab size as base and handle the difference in the model
+        max_vocab_size = max(self.vocab_size, self.decoder_vocab_size) if self.decoder_vocab_size > 0 else self.vocab_size
+        
         config = T5Config(
-            vocab_size=self.vocab_size,
+            vocab_size=max_vocab_size,  # Use larger vocab size
             d_model=self.d_model,
             d_kv=self.d_kv,
             d_ff=self.d_ff,
@@ -88,11 +92,9 @@ class FrettingTransformerConfig:
             max_length=self.max_length,
         )
         
-        # For T5, decoder vocabulary size is same as encoder
-        if self.decoder_vocab_size > 0:
-            # T5 typically uses the same vocab for encoder and decoder
-            # But we handle different vocabs by setting decoder_vocab_size
-            config.decoder_vocab_size = self.decoder_vocab_size
+        # Store our custom vocab sizes for reference
+        config.encoder_vocab_size = self.vocab_size
+        config.decoder_vocab_size = self.decoder_vocab_size if self.decoder_vocab_size > 0 else self.vocab_size
         
         return config
     

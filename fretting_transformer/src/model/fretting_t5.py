@@ -37,6 +37,15 @@ class FrettingT5Model(nn.Module):
         self.input_vocab_size = config.vocab_size
         self.output_vocab_size = config.decoder_vocab_size
         
+        # If decoder vocab is different from model vocab, add custom output projection
+        if self.output_vocab_size != t5_config.vocab_size:
+            self.custom_lm_head = nn.Linear(config.d_model, self.output_vocab_size, bias=False)
+            self.use_custom_head = True
+            print(f"Created custom output head: {config.d_model} -> {self.output_vocab_size}")
+        else:
+            self.custom_lm_head = None
+            self.use_custom_head = False
+        
         # Initialize weights
         self._init_weights()
     
@@ -52,6 +61,10 @@ class FrettingT5Model(nn.Module):
                 module.weight.data.normal_(mean=0.0, std=self.config.initializer_factor)
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
+        
+        # Initialize custom head if it exists
+        if self.custom_lm_head is not None:
+            self.custom_lm_head.weight.data.normal_(mean=0.0, std=self.config.initializer_factor)
     
     def forward(self,
                 input_ids: torch.Tensor,
@@ -75,14 +88,56 @@ class FrettingT5Model(nn.Module):
             Model outputs including loss and logits
         """
         
-        return self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            decoder_attention_mask=decoder_attention_mask,
-            labels=labels,
-            return_dict=return_dict
-        )
+        if self.use_custom_head and labels is not None:
+            # Custom forward pass for different vocab sizes
+            # Get decoder outputs without computing loss, but with hidden states
+            outputs = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                decoder_input_ids=decoder_input_ids,
+                decoder_attention_mask=decoder_attention_mask,
+                labels=None,  # Don't compute loss yet
+                output_hidden_states=True,  # Need this to get decoder hidden states
+                return_dict=True
+            )
+            
+            # Apply custom output projection
+            # Use the last decoder hidden states when labels=None
+            last_hidden_state = outputs.decoder_hidden_states[-1]
+            logits = self.custom_lm_head(last_hidden_state)
+            
+            # Compute loss manually
+            loss = None
+            if labels is not None:
+                loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                loss = loss_fct(logits.view(-1, self.output_vocab_size), labels.view(-1))
+            
+            # Return in the expected format
+            if return_dict:
+                from transformers.modeling_outputs import Seq2SeqLMOutput
+                return Seq2SeqLMOutput(
+                    loss=loss,
+                    logits=logits,
+                    past_key_values=outputs.past_key_values,
+                    decoder_hidden_states=outputs.decoder_hidden_states,
+                    decoder_attentions=outputs.decoder_attentions,
+                    cross_attentions=outputs.cross_attentions,
+                    encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+                    encoder_hidden_states=outputs.encoder_hidden_states,
+                    encoder_attentions=outputs.encoder_attentions,
+                )
+            else:
+                return (loss, logits) + outputs[2:]
+        else:
+            # Standard T5 forward pass
+            return self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                decoder_input_ids=decoder_input_ids,
+                decoder_attention_mask=decoder_attention_mask,
+                labels=labels,
+                return_dict=return_dict
+            )
     
     def generate(self,
                 input_ids: torch.Tensor,
@@ -123,19 +178,50 @@ class FrettingT5Model(nn.Module):
         if eos_token_id is None:
             eos_token_id = self.config.eos_token_id
         
-        return self.model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_length=max_length,
-            num_beams=num_beams,
-            early_stopping=early_stopping,
-            do_sample=do_sample,
-            temperature=temperature,
-            top_p=top_p,
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            **kwargs
-        )
+        if self.use_custom_head:
+            # For custom head, we need to limit generation to our output vocab size
+            # Temporarily adjust the model's vocab size for generation
+            original_vocab_size = self.model.config.vocab_size
+            self.model.config.vocab_size = self.output_vocab_size
+            
+            # Override the lm_head temporarily
+            original_lm_head = self.model.lm_head
+            self.model.lm_head = self.custom_lm_head
+            
+            try:
+                generated = self.model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_length=max_length,
+                    num_beams=num_beams,
+                    early_stopping=early_stopping,
+                    do_sample=do_sample,
+                    temperature=temperature,
+                    top_p=top_p,
+                    pad_token_id=pad_token_id,
+                    eos_token_id=eos_token_id,
+                    **kwargs
+                )
+            finally:
+                # Restore original settings
+                self.model.config.vocab_size = original_vocab_size
+                self.model.lm_head = original_lm_head
+            
+            return generated
+        else:
+            return self.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_length=max_length,
+                num_beams=num_beams,
+                early_stopping=early_stopping,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                pad_token_id=pad_token_id,
+                eos_token_id=eos_token_id,
+                **kwargs
+            )
     
     def encode(self, 
                input_ids: torch.Tensor,
@@ -345,7 +431,7 @@ def create_model_from_tokenizer(tokenizer, config_type: str = 'paper') -> Fretti
 
 def test_model():
     """Test the model creation and basic functionality."""
-    from ..data.tokenizer import FrettingTokenizer
+    from data.tokenizer import FrettingTokenizer
     
     # Create tokenizer
     tokenizer = FrettingTokenizer()

@@ -16,11 +16,11 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from transformers import AdafactorSchedule, Adafactor
+from transformers.optimization import Adafactor, AdafactorSchedule
 from tqdm import tqdm
 
-from ..model.fretting_t5 import FrettingT5Model
-from ..data.tokenizer import FrettingTokenizer
+from model.fretting_t5 import FrettingT5Model
+from data.tokenizer import FrettingTokenizer
 
 
 @dataclass
@@ -90,10 +90,13 @@ class FrettingTrainer:
         self.optimizer = Adafactor(
             self.model.parameters(),
             scale_parameter=True,
-            relative_step_size=True,
-            warmup_init=False,
+            relative_step=True,
+            warmup_init=True,  # Changed to True as recommended
             lr=None  # Use adaptive learning rate
         )
+        
+        # Initialize scheduler for Adafactor
+        self.scheduler = AdafactorSchedule(self.optimizer)
         
         # Set up directories
         self.setup_directories()
@@ -162,11 +165,24 @@ class FrettingTrainer:
             # Training phase
             train_loss = self.train_epoch()
             
+            # Check if training actually happened
+            if train_loss is None:
+                self.logger.error(f"Training epoch returned None - no batches processed!")
+                self.logger.error(f"Training dataset size: {len(self.train_dataloader.dataset)}")
+                self.logger.error(f"Training dataloader batches: {len(self.train_dataloader)}")
+                raise RuntimeError("No training batches were processed")
+            
             # Validation phase
             val_loss = self.validate()
             
-            # Learning rate tracking
-            current_lr = self.optimizer.param_groups[0].get('lr', 0)
+            # Learning rate tracking - get from scheduler for Adafactor
+            try:
+                current_lr = self.scheduler.get_lr()[0] if hasattr(self.scheduler, 'get_lr') else 0.0
+            except:
+                current_lr = self.optimizer.param_groups[0].get('lr', 0.0)
+                if current_lr is None:
+                    current_lr = 0.0
+            
             self.learning_rates.append(current_lr)
             
             # Log epoch results
@@ -191,13 +207,22 @@ class FrettingTrainer:
         if self.config.load_best_model_at_end:
             self.load_best_checkpoint()
         
+        # Convert any tensors to regular Python types for JSON serialization
+        def convert_to_json_serializable(obj):
+            if hasattr(obj, 'item'):  # PyTorch tensor
+                return obj.item()
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            else:
+                return obj
+        
         return {
-            'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
-            'learning_rates': self.learning_rates,
-            'final_train_loss': self.train_losses[-1] if self.train_losses else None,
-            'final_val_loss': self.val_losses[-1] if self.val_losses else None,
-            'best_val_loss': self.best_val_loss,
+            'train_losses': convert_to_json_serializable(self.train_losses),
+            'val_losses': convert_to_json_serializable(self.val_losses),
+            'learning_rates': convert_to_json_serializable(self.learning_rates),
+            'final_train_loss': convert_to_json_serializable(self.train_losses[-1] if self.train_losses else None),
+            'final_val_loss': convert_to_json_serializable(self.val_losses[-1] if self.val_losses else None),
+            'best_val_loss': convert_to_json_serializable(self.best_val_loss),
             'total_training_time': training_time,
             'total_steps': self.global_step
         }
@@ -278,6 +303,7 @@ class FrettingTrainer:
                 
                 # Optimizer step
                 self.scaler.step(self.optimizer)
+                self.scheduler.step()  # Step the Adafactor scheduler
                 self.scaler.update()
                 self.optimizer.zero_grad()
         else:
@@ -298,6 +324,7 @@ class FrettingTrainer:
                 
                 # Optimizer step
                 self.optimizer.step()
+                self.scheduler.step()  # Step the Adafactor scheduler
                 self.optimizer.zero_grad()
         
         self.global_step += 1
@@ -475,8 +502,8 @@ def create_trainer(model: FrettingT5Model,
 
 if __name__ == "__main__":
     # Test trainer setup
-    from ..model.fretting_t5 import create_model_from_tokenizer
-    from ..data.tokenizer import FrettingTokenizer
+    from model.fretting_t5 import create_model_from_tokenizer
+    from data.tokenizer import FrettingTokenizer
     
     # Create dummy components for testing
     tokenizer = FrettingTokenizer()
