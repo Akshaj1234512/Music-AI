@@ -1,0 +1,87 @@
+# Fretting Transformer .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Large data directories (too large for git)
+# Note: This excludes data files but allows src/data/ source code
+datasets/
+
+# Experiment outputs
+experiments/
+checkpoints/
+pipeline_test/
+sample_outputs/
+sample_tests/
+finetune_tests/
+finetune_experiments/
+
+# Model files and training outputs
+*.pkl
+*.pth
+*.pt
+*.bin
+*.log
+*.json.bak
+
+# Training logs and temporary files
+training_*.log
+*.tmp
+*.temp
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyTorch Lightning
+lightning_logs/
+
+# Weights & Biases
+wandb/
+
+# Cache directories
+.cache/
+.pytorch/

@@ -10,9 +10,10 @@ The Fretting Transformer treats guitar tablature generation as a text-to-text tr
 
 - **T5 Encoder-Decoder Architecture**: Reduced T5 model (d_model=128, d_ff=1024, 3 layers, 4 heads)
 - **Chunked Inference**: Processes long sequences in 20-note chunks with context preservation
-- **Post-Processing**: Achieves 100% pitch accuracy through overlap correction and neighbor search
+- **Post-Processing**: Pitch validation and correction through overlap correction and neighbor search
 - **Comprehensive Evaluation**: Three metrics from paper - pitch accuracy, tab accuracy, and playability score
 - **SynthTab Integration**: Direct support for SynthTab dataset with JAMS annotation format
+- **GuitarSet Fine-tuning**: Professional guitar recordings for domain adaptation and evaluation
 
 ## Installation
 
@@ -126,6 +127,83 @@ python scripts/evaluate.py \
 
 </details>
 
+## GuitarSet Fine-tuning
+
+### 🎸 **Professional Guitar Recording Dataset**
+
+Fine-tune the model on GuitarSet - 360 professional guitar recordings (30 seconds each) with comprehensive tablature annotations. GuitarSet provides real-world performance data across multiple musical styles and playing techniques.
+
+#### **Dataset Overview**
+- **360 excerpts**: 6 players × 2 modes (comp/solo) × 5 styles × 3 progressions × 2 tempi
+- **Musical styles**: Jazz, Rock, Bossa Nova, Singer-Songwriter, Funk
+- **Ground truth**: Per-string MIDI annotations with precise timing
+- **Total duration**: ~3 hours of professional guitar performances
+
+#### **Quick Start: GuitarSet Fine-tuning**
+
+```bash
+# 1. Prepare GuitarSet data splits
+python scripts/prepare_guitarset_data.py
+
+# 2. Quick test (small subset)
+python scripts/finetune_guitarset.py \
+    --quick_test \
+    --gpu_id 0 \
+    --output_dir /data/andreaguz/guitarset_test
+
+# 3. Full fine-tuning
+python scripts/finetune_guitarset.py \
+    --gpu_id 0 \
+    --batch_size 16 \
+    --num_epochs_stage1 5 \
+    --num_epochs_stage2 15 \
+    --use_fp16 \
+    --output_dir /data/andreaguz/guitarset_experiment
+```
+
+#### **Two-Stage Fine-tuning Strategy**
+1. **Stage 1**: Frozen encoder, fine-tune decoder only (5 epochs)
+2. **Stage 2**: Full model fine-tuning with lower learning rate (15 epochs)
+
+#### **Evaluate Trained Model**
+
+Test on individual excerpts:
+```bash
+# Evaluate on Bossa Nova composition
+python scripts/evaluate_sample.py "00_BN1-129-Eb_comp" \
+    --model_path /data/andreaguz/guitarset_experiment/checkpoint-2000 \
+    --gpu_id 0 \
+    --output_dir /data/andreaguz/sample_results \
+    --save_tokens
+
+# Compare different styles
+python scripts/evaluate_sample.py "01_Jazz1-130-D_solo" --model_path ...
+python scripts/evaluate_sample.py "02_Rock1-130-A_comp" --model_path ...
+```
+
+#### **Results and Output Structure**
+```
+/data/andreaguz/guitarset_experiment/
+├── checkpoint-1000/                    # Model checkpoints
+│   ├── pytorch_model.bin              # Model weights
+│   ├── config.json                    # Model configuration
+│   └── tokenizer.json                 # Tokenizer
+├── training_20231208_143022.log       # Training logs
+├── training_config.json               # Experiment configuration
+└── ...
+
+/data/andreaguz/sample_results/
+├── 00_BN1-129-Eb_comp_evaluation.json # Detailed metrics
+└── 00_BN1-129-Eb_comp_summary.txt     # Human-readable results
+```
+
+#### **Key Features**
+- **Player-based splits**: Avoid data leakage with proper train/val/test division
+- **GPU support**: Flexible GPU selection and mixed precision training
+- **Real-time monitoring**: Comprehensive logging and checkpoint management
+- **Style diversity**: Train and evaluate across multiple musical genres
+- **Professional data**: Bridge the gap between synthetic and real guitar performances
+
 ## Architecture Details
 
 ### Model Specifications (from Paper)
@@ -176,6 +254,8 @@ fretting_transformer/
 │   │   ├── synthtab_loader.py           # SynthTab/JAMS data loading
 │   │   ├── unified_tokenizer.py         # 🆕 Unified vocabulary tokenizer (468 tokens)
 │   │   ├── unified_dataset.py           # 🆕 Unified dataset processor
+│   │   ├── guitarset_loader.py          # 🎸 GuitarSet JAMS parser with tablature
+│   │   ├── guitarset_dataset.py         # 🎸 PyTorch dataset for GuitarSet
 │   │   ├── tokenizer.py                 # Legacy dual-vocab tokenizer
 │   │   └── dataset.py                   # Legacy dataset processor
 │   ├── model/
@@ -194,7 +274,10 @@ fretting_transformer/
 │   ├── prepare_data.py                  # Legacy data preparation script
 │   ├── train_model.py                   # Legacy training script  
 │   ├── train_unified_model.py           # 🆕 Unified training script
-│   └── evaluate.py                      # Legacy evaluation script
+│   ├── evaluate.py                      # Legacy evaluation script
+│   ├── prepare_guitarset_data.py        # 🎸 GuitarSet data preparation
+│   ├── finetune_guitarset.py           # 🎸 GuitarSet fine-tuning script
+│   └── evaluate_sample.py               # 🎸 Single excerpt evaluation
 ├── run_pipeline.py                      # 🆕 Updated unified pipeline runner
 ├── test_unified_pipeline.py             # 🆕 Pipeline testing script
 ├── configs/
@@ -209,29 +292,34 @@ fretting_transformer/
 - `unified_fretting_t5.py`: Standard T5 model (no custom heads)
 - Updated `run_pipeline.py`: Uses unified components by default
 
+**🎸 GuitarSet Integration:**
+- `guitarset_loader.py`: Parse GuitarSet JAMS with per-string tablature extraction
+- `guitarset_dataset.py`: PyTorch dataset for GuitarSet fine-tuning
+- `prepare_guitarset_data.py`: Data splits and statistics generation
+- `finetune_guitarset.py`: Two-stage fine-tuning pipeline
+- `evaluate_sample.py`: Individual excerpt evaluation and analysis
+
 **📦 Legacy Files**: Original dual-vocabulary files maintained for reference
 
-## Results
+## Implementation Status
 
-### 🎉 **Current Implementation Results (Unified Vocabulary)**
+### 🔧 **Current Architecture**
 
-**Training Performance (100 epochs, debug model):**
-- ✅ **Training Loss**: 4.05 → 3.92 (excellent convergence)
-- ✅ **Validation Loss**: 3.92 (no overfitting)
-- ✅ **Test Loss**: 2.98 (strong generalization) 
-- ✅ **Perplexity**: 19.76
-- ✅ **Architecture**: Standard T5 (no custom heads needed)
-- ✅ **Generation**: Proper sequence lengths (fixed 6-48 token limitation)
+**Technical Implementation:**
+- ✅ **T5 Compatibility**: Unified vocabulary approach eliminates encoder/decoder mismatch issues
+- ✅ **Standard Architecture**: Uses HuggingFace T5ForConditionalGeneration without modifications
+- ✅ **Stable Training**: No vocabulary errors or embedding table issues
+- ✅ **GuitarSet Integration**: Complete pipeline for professional guitar recording fine-tuning
 
-**Key Improvements:**
-- 🔧 **Fixed T5 Compatibility**: Unified vocabulary eliminates encoder/decoder mismatch
-- 🚀 **Proper Learning**: Model shows clear loss decrease and convergence
-- 📈 **Stable Training**: No vocabulary errors or embedding table issues
-- 🎯 **Standard Architecture**: Uses HuggingFace T5 without modifications
+**Key Features:**
+- **Unified Vocabulary**: Single vocabulary (468 tokens) for both MIDI input and tablature output
+- **Two-Stage Fine-tuning**: Frozen encoder stage followed by full model training
+- **Professional Data Support**: GuitarSet integration with 360 professionally recorded excerpts
+- **Comprehensive Pipeline**: End-to-end training, evaluation, and sample testing
 
-### 📊 **Paper Results Comparison**
+### 📊 **Paper Reference Results**
 
-The original paper reports the following results on test datasets:
+The original paper by Hamberger et al. reports results on various datasets:
 
 | Dataset    | Tab Accuracy | Difficulty Score |
 |-----------|-------------|------------------|
@@ -239,9 +327,7 @@ The original paper reports the following results on test datasets:
 | Leduc      | ~72%        | ~4.24           |
 | DadaGP     | ~82%        | ~2.41           |
 
-Post-processing improves pitch accuracy from ~97% to 100% and tab accuracy from ~68% to 72%+.
-
-**Implementation Status**: ✅ Core architecture working, ready for full-scale paper reproduction.
+Note: These are reference results from the original paper. Our implementation provides the framework to reproduce and extend these results.
 
 ## Configuration
 
