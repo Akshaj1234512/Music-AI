@@ -6,8 +6,48 @@ import logging
 import h5py
 import librosa
 from utilities import (create_folder, float32_to_int16, create_logging, 
-    get_filename, read_guitarset_midi, normalize_audio)
+    get_filename, normalize_audio)
 import config
+
+
+def read_guitarset_midi(midi_path):
+    """Parse MIDI file of GuitarSet dataset using pretty_midi for correct timing.
+    Combines all instruments/channels into a single channel for training.
+    
+    Args:
+        midi_path: str, path to MIDI file
+        
+    Returns:
+        dict: Dictionary containing MIDI events and timestamps in SECONDS
+    """
+    import pretty_midi
+    
+    midi_file = pretty_midi.PrettyMIDI(midi_path)
+    
+    midi_dict = {
+        'midi_event': [],
+        'midi_event_time': []
+    }
+    
+    # Process ALL instruments and combine them into one channel
+    for instrument in midi_file.instruments:
+        for note in instrument.notes:
+            # Note on event - combine all instruments into channel 0
+            event_str = f"note_on channel=0 note={note.pitch} velocity={note.velocity} time={note.start}"
+            midi_dict['midi_event'].append(event_str)
+            midi_dict['midi_event_time'].append(note.start)
+            
+            # Note off event - combine all instruments into channel 0
+            event_str = f"note_off channel=0 note={note.pitch} velocity=0 time={note.end}"
+            midi_dict['midi_event'].append(event_str)
+            midi_dict['midi_event_time'].append(note.end)
+    
+    # Sort events by time to ensure chronological order
+    sorted_indices = np.argsort(midi_dict['midi_event_time'])
+    midi_dict['midi_event'] = [midi_dict['midi_event'][i] for i in sorted_indices]
+    midi_dict['midi_event_time'] = [midi_dict['midi_event_time'][i] for i in sorted_indices]
+    
+    return midi_dict
 
 
 def pack_guitarset_dataset_to_hdf5(args):

@@ -13,7 +13,7 @@ class GuitarSetDataset(torch.utils.data.Dataset):
     """GuitarSet dataset for training."""
     
     def __init__(self, hdf5s_dir, segment_seconds, frames_per_second, 
-            max_note_shift, augmentor=None):
+            max_note_shift, max_timing_shift=0, augmentor=None):
         """Initialize GuitarSet dataset.
         
         Args:
@@ -28,6 +28,7 @@ class GuitarSetDataset(torch.utils.data.Dataset):
         self.segment_seconds = segment_seconds
         self.frames_per_second = frames_per_second
         self.max_note_shift = max_note_shift
+        self.max_timing_shift = max_timing_shift
         self.augmentor = augmentor
         
         self.sample_rate = config.sample_rate
@@ -86,6 +87,26 @@ class GuitarSetDataset(torch.utils.data.Dataset):
                 if note_shift != 0:
                     waveform = librosa.effects.pitch_shift(waveform, sr=self.sample_rate, 
                         steps=note_shift, bins_per_octave=12)
+            else:
+                note_shift = 0
+                
+            # Apply timing shift if specified
+            if self.max_timing_shift > 0:
+                timing_shift = np.random.uniform(-self.max_timing_shift, self.max_timing_shift)
+                # Shift audio by timing_shift seconds
+                shift_samples = int(timing_shift * self.sample_rate)
+                waveform = np.roll(waveform, shift_samples)
+            else:
+                timing_shift = 0
+            
+            # Process MIDI events to targets with timing shift
+            from utilities import TargetProcessor
+            target_processor = TargetProcessor(self.segment_seconds, self.frames_per_second, 
+                config.begin_note, self.classes_num)
+            
+            (target_dict, note_events, pedal_events) = target_processor.process(
+                start_time, midi_events_time, midi_events, 
+                extend_pedal=True, note_shift=note_shift, timing_shift=timing_shift)
             
             # Create data dictionary
             data_dict = {
@@ -95,6 +116,10 @@ class GuitarSetDataset(torch.utils.data.Dataset):
                 'start_time': start_time,
                 'audio_type': hf.attrs['audio_type'].decode() if 'audio_type' in hf.attrs else 'unknown'
             }
+            
+            # Add target data
+            for key in target_dict.keys():
+                data_dict[key] = target_dict[key]
             
             return data_dict
 

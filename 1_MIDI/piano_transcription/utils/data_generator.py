@@ -17,7 +17,7 @@ import config
 
 class MaestroDataset(object):
     def __init__(self, hdf5s_dir, segment_seconds, frames_per_second, 
-        max_note_shift=0, augmentor=None):
+        max_note_shift=0, max_timing_shift=0, augmentor=None):
         """This class takes the meta of an audio segment as input, and return 
         the waveform and targets of the audio segment. This class is used by 
         DataLoader. 
@@ -34,6 +34,7 @@ class MaestroDataset(object):
         self.frames_per_second = frames_per_second
         self.sample_rate = config.sample_rate
         self.max_note_shift = max_note_shift
+        self.max_timing_shift = max_timing_shift
         self.begin_note = config.begin_note
         self.classes_num = config.classes_num
         self.segment_samples = int(self.sample_rate * self.segment_seconds)
@@ -99,20 +100,29 @@ class MaestroDataset(object):
                 waveform = librosa.effects.pitch_shift(waveform, sr=self.sample_rate, 
                     n_steps=note_shift, bins_per_octave=12)
 
+            # Apply timing shift augmentation
+            if self.max_timing_shift > 0:
+                timing_shift = self.random_state.uniform(
+                    low=-self.max_timing_shift, 
+                    high=self.max_timing_shift)
+                # Shift audio by timing_shift seconds
+                shift_samples = int(timing_shift * self.sample_rate)
+                waveform = np.roll(waveform, shift_samples)
+            else:
+                timing_shift = 0
+
             data_dict['waveform'] = waveform
 
             midi_events = [e.decode() for e in hf['midi_event'][:]]
             midi_events_time = hf['midi_event_time'][:]
             
-            # Convert GuitarSet timestamps from 100-microsecond units to seconds
-            # GuitarSet provides timestamps in 0.1ms units, but piano pipeline expects seconds
-            if 'guitarset' in hdf5_path.lower() or 'guitar' in hdf5_path.lower():
-                midi_events_time = midi_events_time / 10000.0  # Convert from 0.1ms to seconds
+            # Note: Both GuitarSet and EGDB now store times in seconds directly
+            # No conversion needed anymore
 
             # Process MIDI events to target
             (target_dict, note_events, pedal_events) = \
                 self.target_processor.process(start_time, midi_events_time, 
-                    midi_events, extend_pedal=True, note_shift=note_shift)
+                    midi_events, extend_pedal=True, note_shift=note_shift, timing_shift=timing_shift)
 
         # Combine input and target
         for key in target_dict.keys():
@@ -177,7 +187,7 @@ class Sampler(object):
           batch_size: int
           mini_data: bool, sample from a small amount of data for debugging
         """
-        assert split in ['train', 'validation']
+        assert split in ['train', 'validation', 'val']
         self.hdf5s_dir = hdf5s_dir
         self.split = split
         self.segment_seconds = segment_seconds

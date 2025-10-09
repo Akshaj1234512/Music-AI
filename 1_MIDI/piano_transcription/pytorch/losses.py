@@ -23,6 +23,28 @@ def regress_onset_offset_frame_velocity_bce(model, output_dict, target_dict):
     total_loss = onset_loss + offset_loss + frame_loss + velocity_loss
     return total_loss
 
+def moderate_onset_prioritization_bce(model, output_dict, target_dict):
+    """High-resolution piano note regression loss, including onset regression, 
+    offset regression, velocity regression and frame-wise classification losses.
+    """
+    onset_loss = bce(output_dict['reg_onset_output'], target_dict['reg_onset_roll'], target_dict['mask_roll'])
+    offset_loss = bce(output_dict['reg_offset_output'], target_dict['reg_offset_roll'], target_dict['mask_roll'])
+    frame_loss = bce(output_dict['frame_output'], target_dict['frame_roll'], target_dict['mask_roll'])
+    velocity_loss = bce(output_dict['velocity_output'], target_dict['velocity_roll'] / 128, target_dict['onset_roll'])
+    total_loss = 1.6 * onset_loss + 0.9 * offset_loss + 1.25 * frame_loss + 1.15 * velocity_loss
+    return total_loss
+
+def simple_onset_prioritization_bce(model, output_dict, target_dict):
+    """High-resolution piano note regression loss, including onset regression, 
+    offset regression, velocity regression and frame-wise classification losses.
+    """
+    onset_loss = bce(output_dict['reg_onset_output'], target_dict['reg_onset_roll'], target_dict['mask_roll'])
+    offset_loss = bce(output_dict['reg_offset_output'], target_dict['reg_offset_roll'], target_dict['mask_roll'])
+    frame_loss = bce(output_dict['frame_output'], target_dict['frame_roll'], target_dict['mask_roll'])
+    velocity_loss = bce(output_dict['velocity_output'], target_dict['velocity_roll'] / 128, target_dict['onset_roll'])
+    total_loss = 1.2 * onset_loss + 1.0 * offset_loss + 1.0 * frame_loss + 1.0 * velocity_loss
+    return total_loss
+
 def regress_onset_offset_frame_bce(model, output_dict, target_dict):
     """High-resolution piano note regression loss, including onset regression, 
     offset regression regression and frame-wise classification losses.
@@ -174,6 +196,11 @@ def get_loss_func(loss_type):
 
     elif loss_type == "regress_onset_offset_frame_50ms_accuracy":
         return regress_onset_offset_frame_50ms_accuracy
+    
+    elif loss_type == "moderate_onset_prioritization_bce":
+        return moderate_onset_prioritization_bce
+    elif loss_type == "simple_onset_prioritization_bce":
+        return simple_onset_prioritization_bce
 
     else:
         raise Exception('Incorrect loss_type!')

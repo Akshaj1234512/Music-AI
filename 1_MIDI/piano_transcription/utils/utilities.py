@@ -230,7 +230,7 @@ class TargetProcessor(object):
         self.max_piano_note = self.classes_num - 1
 
     def process(self, start_time, midi_events_time, midi_events, 
-        extend_pedal=True, note_shift=0):
+        extend_pedal=True, note_shift=0, timing_shift=0):
         """Process MIDI events of an audio segment to target for training, 
         includes: 
         1. Parse MIDI events
@@ -395,25 +395,29 @@ class TargetProcessor(object):
             """There are 88 keys on a piano"""
 
             if 0 <= piano_note <= self.max_piano_note:
-                bgn_frame = int(round((note_event['onset_time'] - start_time) * self.frames_per_second))
-                fin_frame = int(round((note_event['offset_time'] - start_time) * self.frames_per_second))
+                # Apply timing shift to onset and offset times
+                onset_time = note_event['onset_time'] + timing_shift
+                offset_time = note_event['offset_time'] + timing_shift
+                
+                bgn_frame = int(round((onset_time - start_time) * self.frames_per_second))
+                fin_frame = int(round((offset_time - start_time) * self.frames_per_second))
 
-                if fin_frame >= 0:
-                    frame_roll[max(bgn_frame, 0) : fin_frame + 1, piano_note] = 1
+                if fin_frame >= 0 and fin_frame < frames_num:
+                    frame_roll[max(bgn_frame, 0) : min(fin_frame + 1, frames_num), piano_note] = 1
 
                     offset_roll[fin_frame, piano_note] = 1
-                    velocity_roll[max(bgn_frame, 0) : fin_frame + 1, piano_note] = note_event['velocity']
+                    velocity_roll[max(bgn_frame, 0) : min(fin_frame + 1, frames_num), piano_note] = note_event['velocity']
 
                     # Vector from the center of a frame to ground truth offset
                     reg_offset_roll[fin_frame, piano_note] = \
-                        (note_event['offset_time'] - start_time) - (fin_frame / self.frames_per_second)
+                        (offset_time - start_time) - (fin_frame / self.frames_per_second)
 
-                    if bgn_frame >= 0:
+                    if bgn_frame >= 0 and bgn_frame < frames_num:
                         onset_roll[bgn_frame, piano_note] = 1
 
                         # Vector from the center of a frame to ground truth onset
                         reg_onset_roll[bgn_frame, piano_note] = \
-                            (note_event['onset_time'] - start_time) - (bgn_frame / self.frames_per_second)
+                            (onset_time - start_time) - (bgn_frame / self.frames_per_second)
                 
                     # Mask out segment notes
                     else:
@@ -437,14 +441,14 @@ class TargetProcessor(object):
             bgn_frame = int(round((pedal_event['onset_time'] - start_time) * self.frames_per_second))
             fin_frame = int(round((pedal_event['offset_time'] - start_time) * self.frames_per_second))
 
-            if fin_frame >= 0:
-                pedal_frame_roll[max(bgn_frame, 0) : fin_frame + 1] = 1
+            if fin_frame >= 0 and fin_frame < frames_num:
+                pedal_frame_roll[max(bgn_frame, 0) : min(fin_frame + 1, frames_num)] = 1
 
                 pedal_offset_roll[fin_frame] = 1
                 reg_pedal_offset_roll[fin_frame] = \
                     (pedal_event['offset_time'] - start_time) - (fin_frame / self.frames_per_second)
 
-                if bgn_frame >= 0:
+                if bgn_frame >= 0 and bgn_frame < frames_num:
                     pedal_onset_roll[bgn_frame] = 1
                     reg_pedal_onset_roll[bgn_frame] = \
                         (pedal_event['onset_time'] - start_time) - (bgn_frame / self.frames_per_second)
@@ -1434,38 +1438,6 @@ def load_audio(path, sr=22050, mono=True, offset=0.0, duration=None,
     y = np.ascontiguousarray(y, dtype=dtype)
 
     return (y, sr)
-
-
-def read_guitarset_midi(midi_path):
-    """Parse MIDI file of GuitarSet dataset."""
-    
-    midi_file = MidiFile(midi_path)
-    ticks_per_beat = midi_file.ticks_per_beat
-    
-    midi_dict = {
-        'midi_event': [],
-        'midi_event_time': []
-    }
-    
-    # Process each track
-    for track in midi_file.tracks:
-        current_time = 0
-        for msg in track:
-            current_time += msg.time
-            
-            if msg.type == 'note_on' and msg.velocity > 0:
-                # Convert to expected format: note_on channel=0 note=48 velocity=64 time=0
-                event_str = f"note_on channel=0 note={msg.note} velocity={msg.velocity} time={current_time}"
-                midi_dict['midi_event'].append(event_str)
-                midi_dict['midi_event_time'].append(current_time)
-                
-            elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
-                # Convert to expected format: note_off channel=0 note=48 velocity=0 time=1000
-                event_str = f"note_off channel=0 note={msg.note} velocity=0 time={current_time}"
-                midi_dict['midi_event'].append(event_str)
-                midi_dict['midi_event_time'].append(current_time)
-    
-    return midi_dict
 
 
 def normalize_audio(audio):
