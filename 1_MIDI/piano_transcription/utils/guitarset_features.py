@@ -72,14 +72,9 @@ def pack_guitarset_dataset_to_hdf5(args):
     # Paths
     midi_dir = os.path.join(dataset_dir, 'MIDIAnnotations')
     
-    if audio_type == 'combined':
-        # For combined dataset, we'll process all audio types
-        audio_types = ['audio_mix', 'audio_hex_original', 'audio_hex_debleeded', 'audio_mono-mic']
-        waveform_hdf5s_dir = os.path.join(workspace, 'hdf5s', 'guitarset', 'combined')
-    else:
-        # Single audio type
-        audio_types = [audio_type]
-        waveform_hdf5s_dir = os.path.join(workspace, 'hdf5s', 'guitarset', audio_type)
+
+    audio_types = [audio_type]
+    waveform_hdf5s_dir = os.path.join(workspace, 'hdf5s', 'guitarset', audio_type)
     
     logs_dir = os.path.join(workspace, 'logs', get_filename(__file__))
     create_logging(logs_dir, filemode='w')

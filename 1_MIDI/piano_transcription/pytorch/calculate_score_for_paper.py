@@ -137,7 +137,7 @@ class ScoreCalculator(object):
         self.classes_num = config.classes_num
         self.velocity_scale = config.velocity_scale
         self.velocity = True  # True | False
-        self.pedal = True
+        self.pedal = False
 
         self.evaluate_frame = True
         self.onset_tolerance = 0.05

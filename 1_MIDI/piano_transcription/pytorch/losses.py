@@ -20,7 +20,10 @@ def regress_onset_offset_frame_velocity_bce(model, output_dict, target_dict):
     offset_loss = bce(output_dict['reg_offset_output'], target_dict['reg_offset_roll'], target_dict['mask_roll'])
     frame_loss = bce(output_dict['frame_output'], target_dict['frame_roll'], target_dict['mask_roll'])
     velocity_loss = bce(output_dict['velocity_output'], target_dict['velocity_roll'] / 128, target_dict['onset_roll'])
-    total_loss = onset_loss + offset_loss + frame_loss + velocity_loss
+    # total_loss = 1.2 * onset_loss + 0.9 * offset_loss + 1.2 * frame_loss + velocity_loss
+    # total_loss = 1.4 * onset_loss + 0.8 * offset_loss + 1.2 * frame_loss + velocity_loss
+    # total_loss = 1.6 * onset_loss + 0.8 * offset_loss + 1.4 * frame_loss + 1.1 * velocity_loss
+    total_loss = 2.0 * onset_loss + 0.7 * offset_loss + 1.8 * frame_loss + 1.2 * velocity_loss
     return total_loss
 
 def moderate_onset_prioritization_bce(model, output_dict, target_dict):

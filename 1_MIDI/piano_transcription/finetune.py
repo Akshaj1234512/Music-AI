@@ -97,22 +97,35 @@ def finetune(args):
     logs_dir = os.path.join(workspace, 'logs')
     create_folder(logs_dir)
 
-    create_logging(logs_dir, filemode='w')
-    
-    # Create checkpoint folder based on log number
-    # Find the current log file number to organize checkpoints
+    # Get the log number that create_logging will use
     log_files = [f for f in os.listdir(logs_dir) if f.endswith('.log')]
     if log_files:
-        # Extract the log number
         log_numbers = [int(f.split('.')[0]) for f in log_files]
-        current_log_number = max(log_numbers) 
-        log_folder_name = f"log_{current_log_number:04d}"
+        current_log_number = max(log_numbers) + 1  # Next log number
     else:
-        log_folder_name = "log_0000"
+        current_log_number = 0  # First log number
     
-    # Create log-specific checkpoint folder
+    # Create checkpoint folder based on the log number we'll use
+    log_folder_name = f"log_{current_log_number:04d}"
     log_checkpoints_dir = os.path.join(checkpoints_dir, log_folder_name)
     create_folder(log_checkpoints_dir)
+    
+    # Now create the logging with the specific log number
+    log_path = os.path.join(logs_dir, f'{current_log_number:04d}.log')
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+        datefmt='%a, %d %b %Y %H:%M:%S',
+        filename=log_path,
+        filemode='w')
+    
+    # Print to console
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
+    
     logging.info(f'Using log number: {current_log_number}')
     logging.info(f'Checkpoints will be saved to: {log_checkpoints_dir}')
     
