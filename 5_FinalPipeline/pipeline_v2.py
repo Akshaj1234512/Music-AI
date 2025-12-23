@@ -18,11 +18,27 @@ import complete_workflow_fixed
 import technique_tabs
 import argparse
 import shutil
+import scipy.signal
+import scipy.signal.windows
 
 # Example usage: python pipeline_v2.py --audio_path /data/shamakg/FrancoisLeduc_Raw/audio/2DC4c.mp3
 
 # TODO: Step 1: Import audio
 # Denoising? MusicAI/Music-AI/0_Preprocessing/guitar_extraction_pipeline.py
+
+def find_bpm_from_audio(audio_path):
+    # Fix the 'hann' error by redirecting the old name to the new location
+    scipy.signal.hann = scipy.signal.windows.hann
+    # Fix the 'librosa.core' error if it appears
+    if not hasattr(librosa, 'core'):
+        librosa.core = librosa
+
+    # Load audio
+    y, sr = librosa.load(audio_path, sr=None)
+    # Estimate BPM using beat track function
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    print(f"Estimated Audio BPM: {tempo.item(0):.2f}")
+    return tempo.item(0)
 
 # Step 2: Running Akshaj model. (saves the midi to results folder in directory)
 
@@ -208,9 +224,9 @@ def run_peter_model_on_chunks(chunk_paths: List[str], onsets, durations):
 
 # STEP 3: Andreas MODEL
 
-def run_andreas_model(midi_file_path):
+def run_andreas_model(midi_file_path, bpm):
     
-    final_tab_list: List[Tuple[str, str]] = andrea_test.run_tab_generation(midi_file_path)
+    final_tab_list: List[Tuple[str, str]] = andrea_test.run_tab_generation(midi_file_path, bpm)
 
     print("TAB",final_tab_list)
     
@@ -241,6 +257,8 @@ if __name__ == "__main__":
 
     AUDIO_PATH = args.audio_path
 
+    bpm = find_bpm_from_audio(AUDIO_PATH)
+
     # MIDI_PATH = '/data/shamakg/FrancoisLeduc_Raw/midi/bcs4c.mid'
     MUSIC_TO_MIDI_PATH = "/data/akshaj/MusicAI/workspace/checkpoints/log_0040/guitarset_regress_onset_offset_frame_velocity_bce_log40_iter68000_lr1e-05_bs4.pth"
     MIDI_INFERENCE_SCRIPT = "/data/akshaj/MusicAI/Music-AI/1_MIDI/piano_transcription/pytorch/inference.py"
@@ -253,19 +271,18 @@ if __name__ == "__main__":
 
     midi_dict_peter = [event for event in midi_dict if event['duration_seconds'] >= MIN_AUDIO_SLICE_DURATION] # for peter's model
 
-
     exp_onset_dur_tuples = run_peter_model_on_chunks(*audio_midi_to_chunks(AUDIO_PATH, midi_dict_peter))
     print(exp_onset_dur_tuples)
 
-    tab_list = calculate_onsets(run_andreas_model(midi_path))
+    tab_list = calculate_onsets(run_andreas_model(midi_path, bpm))
     print(tab_list)
 
     output_name = os.path.splitext(os.path.basename(midi_path))[0]
     #tab = complete_workflow_fixed.complete_workflow_example(midi_path, tab_list, exp_onset_dur_tuples, f"{output_name}_andrea.xml", output_format='pdf')
     
     # TODO: Below line takes around 20% andreas and majority of colin's. Problem with matching!!!
-    tab = technique_tabs.conversion_andreas(midi_path, exp_onset_dur_tuples, tab_list, f"{output_name}_andrea.xml")
+    tab = technique_tabs.conversion_andreas(midi_path, exp_onset_dur_tuples, tab_list, f"{output_name}_andrea.xml", bpm)
 
-    tab_colin = technique_tabs.conversion(midi_path, exp_onset_dur_tuples, f"{output_name}_colin.xml")
+    tab_colin = technique_tabs.conversion(midi_path, exp_onset_dur_tuples, f"{output_name}_colin.xml", bpm)
     print(tab)
     print(tab_colin)

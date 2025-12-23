@@ -46,7 +46,7 @@ OPEN_STRINGS = {
     6: 40   # Low E (E2)
 }
 
-def run_tab_generation(midi_path: str):
+def run_tab_generation(midi_path: str, bpm):
     """
     Main function to load model, process MIDI, and return final tab list.
     """
@@ -77,7 +77,7 @@ def run_tab_generation(midi_path: str):
         print("Using CUDA")
     else:
         print("Using CPU")
-    final_tab = process_midi_file(midi_path, tokenizer, model, capo=CAPO, tuning=TUNING)
+    final_tab = process_midi_file(midi_path, tokenizer, model, capo=CAPO, tuning=TUNING, bpm=bpm)
     
     return final_tab
 
@@ -295,7 +295,7 @@ def compute_accuracy_metrics(
     return metrics
 
 
-def midi_to_tab_events(midi_path: Path) -> List[Dict]:
+def midi_to_tab_events(midi_path: Path, bpm: float) -> List[Dict]:
     """
     Load a MIDI file and extract note events.
 
@@ -316,7 +316,8 @@ def midi_to_tab_events(midi_path: Path) -> List[Dict]:
 
     # Use ticks per beat for timing calculations
     ticks_per_beat = midi.ticks_per_beat
-    tempo = mido.bpm2tempo(120)  # Default to 120 BPM (500000 microseconds/beat)
+    tempo = bpm
+    #tempo = mido.bpm2tempo(120)  # Default to 120 BPM (500000 microseconds/beat)
 
     for track in midi.tracks:
         for msg in track:
@@ -393,6 +394,7 @@ def process_midi_file(
     model: T5ForConditionalGeneration,
     capo: int = 0,
     tuning: Tuple[int, ...] = STANDARD_TUNING,
+    bpm: float = 120.0
 ):
     """
     Process a single MIDI file through the model and post-processing.
@@ -403,7 +405,7 @@ def process_midi_file(
         return
 
     # 1. Load MIDI and create encoder tokens
-    note_events = midi_to_tab_events(midi_file)
+    note_events = midi_to_tab_events(midi_file, bpm)
 
     if not note_events:
         print("Skipping (no valid note events found)")
@@ -539,7 +541,7 @@ def process_midi_file(
     return extracted_tabs_list
 
 
-def main():
+def main(bpm):
     """Main execution point for single MIDI file processing."""
     
     # Expect MIDI file path as a command line argument
@@ -583,7 +585,7 @@ def main():
         print("Using CPU")
 
     # Process the file
-    final_tab = process_midi_file(midi_path, tokenizer, model, capo=CAPO, tuning=TUNING)
+    final_tab = process_midi_file(midi_path, tokenizer, model, capo=CAPO, tuning=TUNING, bpm=bpm)
 
     
 

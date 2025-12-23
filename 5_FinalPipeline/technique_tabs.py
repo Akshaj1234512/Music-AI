@@ -508,7 +508,7 @@ def midi_to_jams_with_tablature_from_andreas(midi_path, string_fret_time_tuples,
     return jam
 
 
-def conversion(midi_path, exp_onset_dur_tuples, output_name):
+def conversion(midi_path, exp_onset_dur_tuples, output_name, bpm):
     # Step 1: Create JAMS with tablature
     jam = midi_to_jams_with_tablature(midi_path)
 
@@ -525,11 +525,11 @@ def conversion(midi_path, exp_onset_dur_tuples, output_name):
             print(f"  Note {i}: {techs}")
 
     # Step 4: Convert to MusicXML
-    jams_to_musicxml_real(jam, output_name, tempo_bpm=108)
+    jams_to_musicxml_real(jam, output_name, tempo_bpm=bpm)
 
     return output_name
 
-def conversion_andreas(midi_path, exp_onset_dur_tuples, string_fret_tuples, output_name):
+def conversion_andreas(midi_path, exp_onset_dur_tuples, string_fret_tuples, output_name, bpm):
     # Step 1: Create JAMS with tablature
     jam = midi_to_jams_with_tablature_from_andreas(midi_path, string_fret_tuples)
 
@@ -546,6 +546,6 @@ def conversion_andreas(midi_path, exp_onset_dur_tuples, string_fret_tuples, outp
             print(f"  Note {i}: {techs}")
 
     # Step 4: Convert to MusicXML
-    jams_to_musicxml_real(jam, output_name, tempo_bpm=108)
+    jams_to_musicxml_real(jam, output_name, tempo_bpm=bpm)
 
     return output_name
