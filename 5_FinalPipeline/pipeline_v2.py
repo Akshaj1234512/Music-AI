@@ -251,16 +251,6 @@ if __name__ == "__main__":
 
     midi_dict = find_single_note_onsets(midi_path, MIN_AUDIO_SLICE_DURATION)
 
-    # Make MIDI Onset 0 (Ask Akshaj about this, whether it's needed)
-    initial_offset_seconds = midi_dict[0]["onset_time_seconds"]
-    midi_dict = [
-            {
-                **midi,
-                "onset_time_seconds": midi["onset_time_seconds"] - initial_offset_seconds 
-            }
-            for midi in midi_dict
-        ]
-    #####
     midi_dict_peter = [event for event in midi_dict if event['duration_seconds'] >= MIN_AUDIO_SLICE_DURATION] # for peter's model
 
 
